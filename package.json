@@ -1,0 +1,40 @@
+{
+  "name": "humaneval-runner",
+  "version": "0.1.0",
+  "description": "A local HumanEval benchmark workbench for OpenAI-compatible chat completion endpoints.",
+  "keywords": [
+    "humaneval",
+    "llm-evaluation",
+    "benchmark",
+    "openai-compatible",
+    "react",
+    "vite"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Maxim-Mazurok/humaneval-runner.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Maxim-Mazurok/humaneval-runner/issues"
+  },
+  "homepage": "https://github.com/Maxim-Mazurok/humaneval-runner#readme",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "dev:bench": "node scripts/humaneval-server.mjs",
+    "build": "tsc && vite build",
+    "preview": "vite preview --host 0.0.0.0"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "^5.1.1",
+    "lucide-react": "^0.555.0",
+    "react": "^19.2.1",
+    "react-dom": "^19.2.1",
+    "vite": "^7.2.6"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.7",
+    "@types/react-dom": "^19.2.3",
+    "typescript": "^5.9.3"
+  }
+}
