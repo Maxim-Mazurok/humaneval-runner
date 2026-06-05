@@ -7,6 +7,8 @@ The core workflow is simple: point the app at a model endpoint, edit the system
 prompt or user prompt template, start a subset or full HumanEval run, and watch
 live pass/fail results stream in as each task completes.
 
+![HumanEval Runner live benchmark workbench](docs/screenshot.png)
+
 ## Features
 
 - React/Vite GUI for configuring benchmark runs.
