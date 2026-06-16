@@ -15,6 +15,8 @@ live pass/fail results stream in as each task completes.
 - OpenAI-compatible streaming chat completions support.
 - Editable system prompt and HumanEval prompt template.
 - Full HumanEval runs or targeted task lists such as `0, 1, 2` or `10-25`.
+- Configurable pass count for rerunning the selected benchmark set multiple
+  times in pass-major order.
 - Configurable task parallelism, defaulting to one task at a time.
 - Live pass@1 score, completed/passed/failed counts, and assertion-level stats.
 - Per-task views for prompt, original task, model output, extracted code,
@@ -79,6 +81,11 @@ the HumanEval function stub for each task.
 Set `Parallel` to the number of HumanEval tasks to solve at once. The default is
 `1`, which preserves sequential execution. Higher values send multiple model
 requests concurrently and can make runs faster if your endpoint supports it.
+
+Set `Passes` to rerun the same selected benchmark set multiple times. The runner
+executes the whole task set for pass 1, then the whole task set for pass 2, and
+so on. Results are grouped by HumanEval task in the UI, with pass tabs inside
+each task row.
 
 The `Extra request body` field accepts a JSON object and is merged into the
 chat completion request. For example:

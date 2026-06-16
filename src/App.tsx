@@ -10,6 +10,8 @@ import {
   Bell,
   BellOff,
   Plus,
+  PanelLeftClose,
+  PanelLeftOpen,
   Play,
   Server,
   Settings2,
@@ -28,6 +30,7 @@ import {
 } from "./notifications";
 
 const BENCH_API = "http://localhost:8787";
+const SIDEBAR_COLLAPSED_STORAGE_KEY = "humaneval.sidebar.collapsed";
 const DEFAULT_SYSTEM_PROMPT = `You are completing a Python programming task.
 
 Implement the requested function exactly as described by the prompt. Prioritize functional correctness above all else. Performance is secondary unless the prompt gives explicit limits.
@@ -58,6 +61,7 @@ const DEFAULT_FORM_VALUES = {
   maxTokens: 2048,
   timeoutSeconds: 15,
   parallelTasks: 1,
+  passCount: 1,
   commentSignalThreshold: 50,
   sampleLimit: 0,
   startIndex: 0,
@@ -69,6 +73,9 @@ const DEFAULT_FORM_VALUES = {
 
 type BenchResult = {
   taskId: string;
+  attemptId?: string;
+  passNumber?: number;
+  passTotal?: number;
   index: number;
   entryPoint: string;
   passed: boolean;
@@ -128,6 +135,7 @@ type BenchRun = {
     maxTokens?: number;
     timeoutSeconds?: number;
     parallelTasks?: number;
+    passCount?: number;
     sampleLimit?: number;
     startIndex?: number;
     extraBody?: Record<string, unknown>;
@@ -138,6 +146,9 @@ type BenchRun = {
 
 type TokenEvent = {
   taskId: string;
+  attemptId?: string;
+  passNumber?: number;
+  passTotal?: number;
   index?: number;
   channel: string;
   text: string;
@@ -152,6 +163,10 @@ type EventEnvelope = {
 
 type StartedTask = {
   taskId: string;
+  attemptId?: string;
+  passNumber: number;
+  passTotal: number;
+  passOrdinal?: number;
   index: number;
   entryPoint: string;
   prompt?: string;
@@ -159,8 +174,32 @@ type StartedTask = {
 };
 
 type TaskRow = StartedTask & {
+  key: string;
   status: "running" | "pass" | "fail";
   result?: BenchResult;
+};
+
+type TaskGroup = {
+  taskId: string;
+  index: number;
+  entryPoint: string;
+  attempts: TaskRow[];
+};
+
+type PassTabGroup = {
+  key: string;
+  startPass: number;
+  endPass: number;
+  status: TaskRow["status"];
+  attempts: TaskRow[];
+  representative: TaskRow;
+};
+
+type ChartPassGroup = {
+  key: string;
+  startPass: number;
+  endPass: number;
+  row: PassVariabilityStats["passRows"][number];
 };
 
 type TaskPromptInfo = {
@@ -185,6 +224,25 @@ type ThinkingCommentSignal = {
   addedCommentLines: number;
   leadingCommentLines: number;
   commentRatio: number;
+};
+
+type PassVariabilityStats = {
+  passRows: Array<{
+    passNumber: number;
+    completed: number;
+    passed: number;
+    failed: number;
+    score: number;
+  }>;
+  passTotal: number;
+  minScore: number;
+  maxScore: number;
+  taskCounts: {
+    total: number;
+    allPass: number;
+    mixed: number;
+    allFail: number;
+  };
 };
 
 type BenchRoute = {
@@ -214,7 +272,43 @@ function pct(value?: number | null) {
 }
 
 function runTotal(run?: BenchRun | null) {
-  return run?.total || run?.selectedIndices?.length || 164;
+  return run?.total || ((run?.selectedIndices?.length || 164) * runPassCount(run));
+}
+
+function runPassCount(run?: BenchRun | null) {
+  return normalizePassCount(Number(run?.config?.passCount ?? 1));
+}
+
+function ordinal(value: number) {
+  const normalized = Math.max(1, Math.floor(value));
+  const mod100 = normalized % 100;
+  if (mod100 >= 11 && mod100 <= 13) return `${normalized}th`;
+  switch (normalized % 10) {
+    case 1:
+      return `${normalized}st`;
+    case 2:
+      return `${normalized}nd`;
+    case 3:
+      return `${normalized}rd`;
+    default:
+      return `${normalized}th`;
+  }
+}
+
+function completedMetricLines(run?: BenchRun | null): Array<[string, string]> {
+  const total = runTotal(run);
+  const completed = Math.min(Math.max(run?.completed ?? 0, 0), total);
+  const passCount = runPassCount(run);
+  const passTotal = Math.max(1, Math.ceil(total / passCount));
+  const currentPass = completed >= total
+    ? passCount
+    : Math.min(passCount, Math.floor(completed / passTotal) + 1);
+  const currentPassCompleted = completed >= total ? passTotal : completed % passTotal;
+
+  return [
+    ["Total:", `${pct(total ? completed / total : 0)} (${completed}/${total})`],
+    [`${ordinal(currentPass)} pass:`, `${pct(currentPassCompleted / passTotal)} (${currentPassCompleted}/${passTotal})`]
+  ];
 }
 
 function thresholdRatio(thresholdPercent: number) {
@@ -633,6 +727,59 @@ function assertionStats(results: BenchResult[] = []) {
   return { passed, total, score: total ? passed / total : 0 };
 }
 
+function passVariabilityStats(run?: BenchRun | null): PassVariabilityStats {
+  const results = run?.results ?? [];
+  const configuredPasses = runPassCount(run);
+  const passTotal = Math.max(
+    configuredPasses,
+    ...results.map((result) => Number(result.passTotal ?? result.passNumber ?? 1)).filter(Number.isFinite)
+  );
+  const passRows = new Map<number, PassVariabilityStats["passRows"][number]>();
+  for (let passNumber = 1; passNumber <= passTotal; passNumber += 1) {
+    passRows.set(passNumber, { passNumber, completed: 0, passed: 0, failed: 0, score: 0 });
+  }
+  const taskRows = new Map<string, { completed: number; passed: number }>();
+
+  for (const result of results) {
+    const passNumber = attemptPassNumber(result);
+    const row = passRows.get(passNumber) ?? { passNumber, completed: 0, passed: 0, failed: 0, score: 0 };
+    row.completed += 1;
+    if (result.passed) row.passed += 1;
+    else row.failed += 1;
+    row.score = row.completed ? row.passed / row.completed : 0;
+    passRows.set(passNumber, row);
+
+    const task = taskRows.get(result.taskId) ?? { completed: 0, passed: 0 };
+    task.completed += 1;
+    if (result.passed) task.passed += 1;
+    taskRows.set(result.taskId, task);
+  }
+
+  const completedRows = [...passRows.values()].filter((row) => row.completed > 0);
+  const scores = completedRows.map((row) => row.score);
+  let allPass = 0;
+  let mixed = 0;
+  let allFail = 0;
+  for (const task of taskRows.values()) {
+    if (task.passed === 0) allFail += 1;
+    else if (task.passed === task.completed) allPass += 1;
+    else mixed += 1;
+  }
+
+  return {
+    passRows: [...passRows.values()].sort((left, right) => left.passNumber - right.passNumber),
+    passTotal,
+    minScore: scores.length ? Math.min(...scores) : 0,
+    maxScore: scores.length ? Math.max(...scores) : 0,
+    taskCounts: {
+      total: taskRows.size,
+      allPass,
+      mixed,
+      allFail
+    }
+  };
+}
+
 function formatAssert(test: BenchResult["tests"][number]) {
   const lines = [`${test.passed ? "PASS" : "FAIL"} ${test.source}`];
   if (!test.passed && (test.expected !== undefined || test.actual !== undefined)) {
@@ -725,9 +872,104 @@ function normalizeParallelTasks(value: number) {
   return Math.min(64, Math.max(1, Math.floor(value)));
 }
 
+function normalizePassCount(value: number) {
+  if (!Number.isFinite(value)) return DEFAULT_FORM_VALUES.passCount;
+  return Math.min(100, Math.max(1, Math.floor(value)));
+}
+
 function normalizeCommentSignalThreshold(value: number) {
   if (!Number.isFinite(value)) return DEFAULT_FORM_VALUES.commentSignalThreshold;
   return value;
+}
+
+function readSidebarCollapsed(win: Window = window) {
+  return win.localStorage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY) === "true";
+}
+
+function attemptPassNumber(value: { passNumber?: number } | Record<string, unknown> | undefined) {
+  const parsed = Number(value?.passNumber ?? 1);
+  return normalizePassCount(parsed);
+}
+
+function attemptKey(taskId: string, passNumber = 1, attemptId?: string) {
+  return attemptId || `${taskId}::pass-${attemptPassNumber({ passNumber })}`;
+}
+
+function attemptLabel(passNumber: number, passTotal = 1) {
+  return passTotal > 1 ? `Pass ${passNumber}` : "Pass";
+}
+
+function passRangeLabel(startPass: number, endPass: number, passTotal = 1) {
+  if (passTotal <= 1) return "Pass";
+  return startPass === endPass ? `Pass ${startPass}` : `Pass ${startPass} - ${endPass}`;
+}
+
+function groupSequentialPasses(
+  attempts: Array<{ attempt: TaskRow; mergeKey: string }>
+): PassTabGroup[] {
+  const groups: PassTabGroup[] = [];
+  for (const item of attempts) {
+    const { attempt, mergeKey } = item;
+    const previousGroup = groups[groups.length - 1];
+    const canAppend = previousGroup
+      && previousGroup.key.split("::merge::")[1] === mergeKey
+      && previousGroup.status === attempt.status
+      && previousGroup.endPass + 1 === attempt.passNumber;
+    if (!canAppend) {
+      groups.push({
+        key: `${attempt.taskId}::range-${attempt.passNumber}::merge::${mergeKey}`,
+        startPass: attempt.passNumber,
+        endPass: attempt.passNumber,
+        status: attempt.status,
+        attempts: [attempt],
+        representative: attempt
+      });
+      continue;
+    }
+    previousGroup.endPass = attempt.passNumber;
+    previousGroup.attempts.push(attempt);
+  }
+  return groups;
+}
+
+function groupSequentialChartPasses(
+  rows: PassVariabilityStats["passRows"]
+): ChartPassGroup[] {
+  const groups: ChartPassGroup[] = [];
+  for (const row of rows) {
+    const mergeKey = JSON.stringify({
+      completed: row.completed,
+      passed: row.passed,
+      failed: row.failed,
+      score: row.score
+    });
+    const previousGroup = groups[groups.length - 1];
+    const canAppend = previousGroup
+      && previousGroup.key.split("::merge::")[1] === mergeKey
+      && previousGroup.endPass + 1 === row.passNumber;
+    if (!canAppend) {
+      groups.push({
+        key: `chart-range-${row.passNumber}::merge::${mergeKey}`,
+        startPass: row.passNumber,
+        endPass: row.passNumber,
+        row
+      });
+      continue;
+    }
+    previousGroup.endPass = row.passNumber;
+  }
+  return groups;
+}
+
+function groupedGenerationLabel(attempts: TaskRow[]) {
+  const durations = attempts
+    .map((attempt) => attempt.result?.generationMs)
+    .filter((value): value is number => typeof value === "number" && Number.isFinite(value) && value > 0);
+  if (!durations.length) return "n/a";
+  const min = Math.min(...durations);
+  const max = Math.max(...durations);
+  if (min === max) return formatMs(min);
+  return `${formatMs(min)} - ${formatMs(max)}`;
 }
 
 function orderedChannelOutput(taskTokens: TokenEvent[] = []) {
@@ -774,6 +1016,7 @@ export default function App() {
   const [maxTokens, setMaxTokens] = useState(DEFAULT_FORM_VALUES.maxTokens);
   const [timeoutSeconds, setTimeoutSeconds] = useState(DEFAULT_FORM_VALUES.timeoutSeconds);
   const [parallelTasks, setParallelTasks] = useState(DEFAULT_FORM_VALUES.parallelTasks);
+  const [passCount, setPassCount] = useState(DEFAULT_FORM_VALUES.passCount);
   const [commentSignalThreshold, setCommentSignalThreshold] = useState(DEFAULT_FORM_VALUES.commentSignalThreshold);
   const [sampleLimit, setSampleLimit] = useState(DEFAULT_FORM_VALUES.sampleLimit);
   const [startIndex, setStartIndex] = useState(DEFAULT_FORM_VALUES.startIndex);
@@ -790,6 +1033,10 @@ export default function App() {
   const [events, setEvents] = useState<EventEnvelope[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => (
+    typeof window !== "undefined" ? readSidebarCollapsed(window) : false
+  ));
+  const [selectedPassByTask, setSelectedPassByTask] = useState<Record<string, number>>({});
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [taskStartedAtByRun, setTaskStartedAtByRun] = useState<Record<string, number>>({});
   const [disabledNotificationRunIds, setDisabledNotificationRunIds] = useState(() => (
@@ -824,36 +1071,40 @@ export default function App() {
     ? notificationsEnabledForRun(selectedRun.id, disabledNotificationRunIds)
     : true;
 
-  const tokensByTask = useMemo(() => {
+  const tokensByAttempt = useMemo(() => {
     const grouped = new Map<string, TokenEvent[]>();
     for (const token of tokens) {
-      grouped.set(token.taskId, [...(grouped.get(token.taskId) || []), token]);
+      const key = attemptKey(token.taskId, attemptPassNumber(token), token.attemptId);
+      grouped.set(key, [...(grouped.get(key) || []), token]);
     }
     return grouped;
   }, [tokens]);
 
-  const promptInfoByTask = useMemo(() => {
+  const promptInfoByAttempt = useMemo(() => {
     const grouped = new Map<string, TaskPromptInfo>();
-    const update = (taskId: string, next: TaskPromptInfo) => {
+    const update = (taskId: string, passNumber: number, attemptId: string | undefined, next: TaskPromptInfo) => {
       if (!taskId) return;
-      grouped.set(taskId, { ...(grouped.get(taskId) || {}), ...next });
+      const key = attemptKey(taskId, passNumber, attemptId);
+      grouped.set(key, { ...(grouped.get(key) || {}), ...next });
     };
     for (const event of events) {
       const taskId = String(event.data.taskId || "");
+      const passNumber = attemptPassNumber(event.data);
+      const attemptId = typeof event.data.attemptId === "string" ? event.data.attemptId : undefined;
       if (event.type === "task-started") {
-        update(taskId, {
+        update(taskId, passNumber, attemptId, {
           prompt: typeof event.data.prompt === "string" ? event.data.prompt : undefined,
           test: typeof event.data.test === "string" ? event.data.test : undefined
         });
       }
       if (event.type === "prompt") {
-        update(taskId, {
+        update(taskId, passNumber, attemptId, {
           instructionPrompt: formatPromptMessages(event.data.messages)
         });
       }
     }
     for (const result of selectedRun?.results ?? []) {
-      update(result.taskId, {
+      update(result.taskId, attemptPassNumber(result), result.attemptId, {
         prompt: result.prompt,
         instructionPrompt: result.instructionPrompt,
         test: result.test
@@ -862,15 +1113,24 @@ export default function App() {
     return grouped;
   }, [events, selectedRun]);
 
-  const taskRows = useMemo(() => {
+  const taskGroups = useMemo(() => {
     const rows = new Map<string, TaskRow>();
     for (const event of events) {
       if (event.type !== "task-started") continue;
       const taskId = String(event.data.taskId || "");
       const index = Number(event.data.index);
       if (!taskId || !Number.isFinite(index)) continue;
-      rows.set(taskId, {
+      const passNumber = attemptPassNumber(event.data);
+      const passTotal = attemptPassNumber({ passNumber: Number(event.data.passTotal ?? runPassCount(selectedRun)) });
+      const attemptId = typeof event.data.attemptId === "string" ? event.data.attemptId : undefined;
+      const key = attemptKey(taskId, passNumber, attemptId);
+      rows.set(key, {
+        key,
         taskId,
+        attemptId,
+        passNumber,
+        passTotal,
+        passOrdinal: Number(event.data.passOrdinal) || undefined,
         index,
         entryPoint: String(event.data.entryPoint || ""),
         prompt: typeof event.data.prompt === "string" ? event.data.prompt : undefined,
@@ -879,13 +1139,18 @@ export default function App() {
       });
     }
     for (const taskId of selectedRun?.activeTaskIds ?? []) {
-      if (rows.has(taskId)) continue;
-      const tokenIndex = tokensByTask.get(taskId)?.find((token) => Number.isFinite(token.index))?.index;
+      const passNumber = 1;
+      const key = attemptKey(taskId, passNumber);
+      if (rows.has(key)) continue;
+      const tokenIndex = tokensByAttempt.get(key)?.find((token) => Number.isFinite(token.index))?.index;
       const parsedIndex = Number(taskId.match(/HumanEval\/(\d+)$/)?.[1]);
       const fallbackIndex = Number.isFinite(parsedIndex) ? parsedIndex : Number.MAX_SAFE_INTEGER;
-      const promptInfo = promptInfoByTask.get(taskId);
-      rows.set(taskId, {
+      const promptInfo = promptInfoByAttempt.get(key);
+      rows.set(key, {
+        key,
         taskId,
+        passNumber,
+        passTotal: runPassCount(selectedRun),
         index: Number.isFinite(tokenIndex) ? Number(tokenIndex) : fallbackIndex,
         entryPoint: "",
         prompt: promptInfo?.prompt,
@@ -894,8 +1159,15 @@ export default function App() {
       });
     }
     for (const result of selectedRun?.results ?? []) {
-      rows.set(result.taskId, {
+      const passNumber = attemptPassNumber(result);
+      const passTotal = attemptPassNumber({ passNumber: result.passTotal ?? runPassCount(selectedRun) });
+      const key = attemptKey(result.taskId, passNumber, result.attemptId);
+      rows.set(key, {
+        key,
         taskId: result.taskId,
+        attemptId: result.attemptId,
+        passNumber,
+        passTotal,
         index: result.index,
         entryPoint: result.entryPoint,
         prompt: result.prompt,
@@ -904,8 +1176,29 @@ export default function App() {
         result
       });
     }
-    return [...rows.values()].sort((left, right) => left.index - right.index);
-  }, [events, promptInfoByTask, selectedRun, tokensByTask]);
+    const groups = new Map<string, TaskGroup>();
+    for (const row of rows.values()) {
+      const group = groups.get(row.taskId);
+      if (group) {
+        group.index = Math.min(group.index, row.index);
+        if (!group.entryPoint && row.entryPoint) group.entryPoint = row.entryPoint;
+        group.attempts.push(row);
+      } else {
+        groups.set(row.taskId, {
+          taskId: row.taskId,
+          index: row.index,
+          entryPoint: row.entryPoint,
+          attempts: [row]
+        });
+      }
+    }
+    return [...groups.values()]
+      .map((group) => ({
+        ...group,
+        attempts: group.attempts.sort((left, right) => left.passNumber - right.passNumber)
+      }))
+      .sort((left, right) => left.index - right.index);
+  }, [events, promptInfoByAttempt, selectedRun, tokensByAttempt]);
 
   useEffect(() => {
     selectedRunIdRef.current = selectedRunId;
@@ -935,6 +1228,10 @@ export default function App() {
   useEffect(() => {
     disabledNotificationRunIdsRef.current = disabledNotificationRunIds;
   }, [disabledNotificationRunIds]);
+
+  useEffect(() => {
+    window.localStorage.setItem(SIDEBAR_COLLAPSED_STORAGE_KEY, String(sidebarCollapsed));
+  }, [sidebarCollapsed]);
 
   useEffect(() => {
     if (!statusIsLive(selectedRun?.status)) return undefined;
@@ -1026,6 +1323,7 @@ export default function App() {
     setMaxTokens(DEFAULT_FORM_VALUES.maxTokens);
     setTimeoutSeconds(DEFAULT_FORM_VALUES.timeoutSeconds);
     setParallelTasks(DEFAULT_FORM_VALUES.parallelTasks);
+    setPassCount(DEFAULT_FORM_VALUES.passCount);
     setCommentSignalThreshold(DEFAULT_FORM_VALUES.commentSignalThreshold);
     setSampleLimit(DEFAULT_FORM_VALUES.sampleLimit);
     setStartIndex(DEFAULT_FORM_VALUES.startIndex);
@@ -1046,6 +1344,7 @@ export default function App() {
     setMaxTokens(Number(config.maxTokens ?? 2048));
     setTimeoutSeconds(Number(config.timeoutSeconds ?? 15));
     setParallelTasks(normalizeParallelTasks(Number(config.parallelTasks ?? 1)));
+    setPassCount(normalizePassCount(Number(config.passCount ?? 1)));
     setSampleLimit(Number(config.sampleLimit ?? 0));
     setStartIndex(Number(config.startIndex ?? 0));
     setTestNumbers(String(config.testNumbers ?? ""));
@@ -1092,6 +1391,7 @@ export default function App() {
           maxTokens,
           timeoutSeconds,
           parallelTasks: normalizeParallelTasks(parallelTasks),
+          passCount: normalizePassCount(passCount),
           sampleLimit,
           startIndex,
           testNumbers,
@@ -1154,6 +1454,14 @@ export default function App() {
               const json = await response.json();
               if (response.ok) {
                 setRuns((previous) => updateRunInPlace(previous, json));
+                if (runId === selectedRunIdRef.current) {
+                  const refreshedEvents = (json.events as EventEnvelope[] | undefined) ?? [];
+                  const refreshedTokens = refreshedEvents
+                    .filter((refreshedEvent) => refreshedEvent.type === "token")
+                    .map((refreshedEvent) => refreshedEvent.data as unknown as TokenEvent);
+                  setEvents(refreshedEvents);
+                  setTokens(refreshedTokens);
+                }
               }
             })
             .catch(() => undefined);
@@ -1214,88 +1522,115 @@ export default function App() {
   }
 
   return (
-    <main className="bench-shell">
-      <aside className="bench-sidebar">
-        <div className="bench-title">
-          <TerminalSquare size={34} />
-          <div>
-            <p>HumanEval</p>
-            <h1>Code benchmark workbench</h1>
+    <main className={sidebarCollapsed ? "bench-shell sidebar-collapsed" : "bench-shell"}>
+      {sidebarCollapsed ? (
+        <button
+          aria-label="Expand benchmark settings"
+          className="sidebar-float-toggle"
+          title="Expand settings"
+          type="button"
+          onClick={() => setSidebarCollapsed(false)}
+        >
+          <PanelLeftOpen size={21} />
+        </button>
+      ) : (
+        <aside className="bench-sidebar">
+          <div className="bench-title-row">
+            <div className="bench-title">
+              <TerminalSquare size={34} />
+              <div>
+                <p>HumanEval</p>
+                <h1>Code benchmark workbench</h1>
+              </div>
+            </div>
+            <button
+              aria-label="Collapse benchmark settings"
+              className="sidebar-toggle"
+              title="Collapse settings"
+              type="button"
+              onClick={() => setSidebarCollapsed(true)}
+            >
+              <PanelLeftClose size={18} />
+            </button>
           </div>
-        </div>
-        <label className="field">
-          <span><Server size={14} /> Base URL</span>
-          <input value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} placeholder="https://host/v1" />
-        </label>
-        <label className="field">
-          <span><KeyRound size={14} /> API key</span>
-          <input value={apiKey} onChange={(event) => setApiKey(event.target.value)} type="password" placeholder="optional" />
-        </label>
-        <label className="field">
-          <span>Model</span>
-          <input value={model} onChange={(event) => setModel(event.target.value)} placeholder="provider/model-name" />
-        </label>
-        <div className="bench-number-grid">
           <label className="field">
-            <span>Max tokens</span>
-            <input value={maxTokens} min={256} step={256} type="number" onChange={(event) => setMaxTokens(Number(event.target.value))} />
+            <span><Server size={14} /> Base URL</span>
+            <input value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} placeholder="https://host/v1" />
           </label>
           <label className="field">
-            <span>Timeout</span>
-            <input value={timeoutSeconds} min={1} type="number" onChange={(event) => setTimeoutSeconds(Number(event.target.value))} />
+            <span><KeyRound size={14} /> API key</span>
+            <input value={apiKey} onChange={(event) => setApiKey(event.target.value)} type="password" placeholder="optional" />
           </label>
           <label className="field">
-            <span>Parallel</span>
-            <input value={parallelTasks} min={1} max={64} type="number" onChange={(event) => setParallelTasks(normalizeParallelTasks(Number(event.target.value)))} />
+            <span>Model</span>
+            <input value={model} onChange={(event) => setModel(event.target.value)} placeholder="provider/model-name" />
+          </label>
+          <div className="bench-number-grid">
+            <label className="field">
+              <span>Max tokens</span>
+              <input value={maxTokens} min={256} step={256} type="number" onChange={(event) => setMaxTokens(Number(event.target.value))} />
+            </label>
+            <label className="field">
+              <span>Timeout</span>
+              <input value={timeoutSeconds} min={1} type="number" onChange={(event) => setTimeoutSeconds(Number(event.target.value))} />
+            </label>
+            <label className="field">
+              <span>Parallel</span>
+              <input value={parallelTasks} min={1} max={64} type="number" onChange={(event) => setParallelTasks(normalizeParallelTasks(Number(event.target.value)))} />
+            </label>
+            <label className="field">
+              <span>Passes</span>
+              <input value={passCount} min={1} max={100} type="number" onChange={(event) => setPassCount(normalizePassCount(Number(event.target.value)))} />
+            </label>
+            <label className="field">
+              <span>Start</span>
+              <input value={startIndex} min={0} max={163} type="number" onChange={(event) => setStartIndex(Number(event.target.value))} />
+            </label>
+            <label className="field">
+              <span>Limit</span>
+              <input value={sampleLimit} min={0} max={164} type="number" onChange={(event) => setSampleLimit(Number(event.target.value))} />
+            </label>
+          </div>
+          <label className="field">
+            <span><FileText size={14} /> Test numbers</span>
+            <textarea
+              value={testNumbers}
+              onChange={(event) => setTestNumbers(event.target.value)}
+              rows={3}
+              placeholder="0, 1, 2 or 10-25. Empty uses start/limit."
+            />
           </label>
           <label className="field">
-            <span>Start</span>
-            <input value={startIndex} min={0} max={163} type="number" onChange={(event) => setStartIndex(Number(event.target.value))} />
+            <span><Settings2 size={14} /> System prompt</span>
+            <textarea value={systemPrompt} onChange={(event) => setSystemPrompt(event.target.value)} rows={5} />
           </label>
           <label className="field">
-            <span>Limit</span>
-            <input value={sampleLimit} min={0} max={164} type="number" onChange={(event) => setSampleLimit(Number(event.target.value))} />
+            <span><FileText size={14} /> Prompt template</span>
+            <textarea
+              value={promptTemplate}
+              onChange={(event) => setPromptTemplate(event.target.value)}
+              rows={11}
+              placeholder="Use %problem_code% where the HumanEval function stub should be inserted."
+            />
           </label>
-        </div>
-        <label className="field">
-          <span><FileText size={14} /> Test numbers</span>
-          <textarea
-            value={testNumbers}
-            onChange={(event) => setTestNumbers(event.target.value)}
-            rows={3}
-            placeholder="0, 1, 2 or 10-25. Empty uses start/limit."
-          />
-        </label>
-        <label className="field">
-          <span><Settings2 size={14} /> System prompt</span>
-          <textarea value={systemPrompt} onChange={(event) => setSystemPrompt(event.target.value)} rows={5} />
-        </label>
-        <label className="field">
-          <span><FileText size={14} /> Prompt template</span>
-          <textarea
-            value={promptTemplate}
-            onChange={(event) => setPromptTemplate(event.target.value)}
-            rows={11}
-            placeholder="Use %problem_code% where the HumanEval function stub should be inserted."
-          />
-        </label>
-        <label className="field">
-          <span><Settings2 size={14} /> Extra request body</span>
-          <textarea value={extraBody} onChange={(event) => setExtraBody(event.target.value)} rows={5} />
-        </label>
-        <div className="bench-warning">
-          Executes model-generated Python locally. Use a dedicated sandbox for untrusted endpoints.
-        </div>
-        <div className="bench-actions">
-          <button className="primary-action" type="button" onClick={startRun} disabled={!model.trim()}>
-            <Play size={17} /> Start run
-          </button>
-          <button className="secondary-action" type="button" onClick={cancelRun} disabled={!statusIsLive(selectedRun?.status)}>
-            <CircleStop size={17} /> Stop selected
-          </button>
-        </div>
-        {error ? <p className="bench-error">{error}</p> : null}
-      </aside>
+          <label className="field">
+            <span><Settings2 size={14} /> Extra request body</span>
+            <textarea value={extraBody} onChange={(event) => setExtraBody(event.target.value)} rows={5} />
+          </label>
+          <div className="bench-warning">
+            Executes model-generated Python locally. Use a dedicated sandbox for untrusted endpoints.
+          </div>
+          <div className="bench-actions">
+            <button className="primary-action" type="button" onClick={startRun} disabled={!model.trim()}>
+              <Play size={17} /> Start run
+            </button>
+            <button className="secondary-action" type="button" onClick={cancelRun} disabled={!statusIsLive(selectedRun?.status)}>
+              <CircleStop size={17} /> Stop selected
+            </button>
+          </div>
+          {error ? <p className="bench-error">{error}</p> : null}
+        </aside>
+      )}
 
       <section className="bench-main">
         <section className="run-strip">
@@ -1316,7 +1651,7 @@ export default function App() {
                 <button className="run-tab-main" type="button" onClick={() => navigateTo({ view: "run", id: candidate.id })}>
                   <span className={`status-dot ${statusIsLive(candidate.status) ? "live" : ""}`} />
                   <strong>{candidate.model || "model"}</strong>
-                  <small>{candidate.status} · {candidate.completed}/{candidate.total || candidate.selectedIndices?.length || 164} · {formatTime(candidate.createdAt)}</small>
+                  <small>{candidate.status} · {candidate.completed}/{runTotal(candidate)} · {formatTime(candidate.createdAt)}</small>
                 </button>
                 <button
                   aria-label={`Delete benchmark run ${candidate.model || candidate.id}`}
@@ -1356,7 +1691,7 @@ export default function App() {
           <span className="progress-remaining" style={{ width: `${selectedProgressSegments.remaining}%` }} />
         </div>
         <section className="bench-metrics">
-          <Metric label="Completed" value={selectedRun ? `${selectedRun.completed}/${selectedRun.total || 164}` : "0/164"} />
+          <Metric label="Completed" value={<MetricLines lines={completedMetricLines(selectedRun)} />} />
           <Metric label="Passed" value={String(selectedRun?.passed ?? 0)} tone="passed">
             <button className="metric-action" type="button" onClick={() => copyNumbers(true)} disabled={!selectedRun?.results.length}>
               <ClipboardCopy size={14} /> Copy passed
@@ -1430,37 +1765,127 @@ export default function App() {
           />
         </section>
 
+        <PassVariabilityChart run={selectedRun} />
+
         <section className="results-panel">
           <div className="pane-head">Tasks</div>
-          {taskRows.length ? taskRows.map((row) => {
+          {taskGroups.length ? taskGroups.map((group) => {
+            const runningAttempt = group.attempts.find((attempt) => attempt.status === "running");
+            const passTotal = Math.max(runPassCount(selectedRun), ...group.attempts.map((attempt) => attempt.passTotal || 1));
+            const attemptViews = group.attempts.map((attempt) => {
+              const attemptResult = attempt.result;
+              const promptInfo = promptInfoByAttempt.get(attempt.key);
+              const originalPrompt = attemptResult?.prompt || promptInfo?.prompt || attempt.prompt;
+              const instructionPrompt = attemptResult?.instructionPrompt
+                || promptInfo?.instructionPrompt
+                || buildInstructionPromptFallback(selectedRun, originalPrompt);
+              const testPrompt = attemptResult?.test || promptInfo?.test || attempt.test;
+              const liveOutput = orderedChannelOutput(tokensByAttempt.get(attempt.key));
+              const commentSignal = analyzeThinkingComments(attemptResult);
+              return {
+                attempt,
+                promptInfo,
+                originalPrompt,
+                instructionPrompt,
+                testPrompt,
+                liveOutput,
+                commentSignal,
+                thinkingInComments: commentSignalIsFlagged(commentSignal, commentSignalThreshold),
+                mergeKey: JSON.stringify({
+                  status: attempt.status,
+                  entryPoint: attempt.entryPoint,
+                  originalPrompt,
+                  instructionPrompt,
+                  testPrompt,
+                  liveOutput: attempt.status === "running" ? liveOutput : null,
+                  commentSignal: attemptResult ? formatCommentSignal(commentSignal, commentSignalThreshold) : null,
+                  modelError: attemptResult?.modelError ?? null,
+                  tests: attemptResult?.tests ?? null,
+                  thinkingOutput: attemptResult?.thinkingOutput ?? null,
+                  rawOutput: attemptResult?.rawOutput ?? null,
+                  extractedCode: attemptResult?.extractedCode ?? null,
+                  traceback: attemptResult?.traceback ?? null,
+                  error: attemptResult?.error ?? null,
+                  harnessStderr: attemptResult?.harnessStderr ?? null
+                })
+              };
+            });
+            const passTabGroups = groupSequentialPasses(attemptViews);
+            const requestedPass = selectedPassByTask[group.taskId];
+            const activePassGroup = passTabGroups.find((tabGroup) => (
+              requestedPass !== undefined
+              && requestedPass >= tabGroup.startPass
+              && requestedPass <= tabGroup.endPass
+            ))
+              ?? passTabGroups.find((tabGroup) => tabGroup.status === "running")
+              ?? passTabGroups[0];
+            const row = activePassGroup?.representative ?? runningAttempt ?? group.attempts[0];
+            const activeAttemptView = attemptViews.find((view) => view.attempt.key === row.key);
             const result = row.result;
-            const liveOutput = orderedChannelOutput(tokensByTask.get(row.taskId));
+            const liveOutput = activeAttemptView?.liveOutput ?? orderedChannelOutput(tokensByAttempt.get(row.key));
             const isRunning = row.status === "running";
-            const isOpen = expanded[row.taskId] ?? isRunning;
+            const groupIsRunning = group.attempts.some((attempt) => attempt.status === "running");
+            const groupStatus = groupIsRunning
+              ? "running"
+              : group.attempts.every((attempt) => attempt.status === "pass")
+                ? "pass"
+                : "fail";
+            const isOpen = expanded[group.taskId] ?? groupIsRunning;
+            const completedPasses = group.attempts.filter((attempt) => attempt.status !== "running").length;
+            const passedPasses = group.attempts.filter((attempt) => attempt.status === "pass").length;
             const assertsPassed = result?.tests.filter((test) => test.passed).length ?? 0;
             const assertScore = result?.tests.length ? assertsPassed / result.tests.length : 0;
-            const commentSignal = analyzeThinkingComments(result);
-            const thinkingInComments = commentSignalIsFlagged(commentSignal, commentSignalThreshold);
-            const promptInfo = promptInfoByTask.get(row.taskId);
-            const originalPrompt = result?.prompt || promptInfo?.prompt || row.prompt;
-            const instructionPrompt = result?.instructionPrompt
-              || promptInfo?.instructionPrompt
-              || buildInstructionPromptFallback(selectedRun, originalPrompt);
-            const testPrompt = result?.test || promptInfo?.test || row.test;
+            const commentSignal = activeAttemptView?.commentSignal ?? analyzeThinkingComments(result);
+            const thinkingInComments = activeAttemptView?.thinkingInComments ?? commentSignalIsFlagged(commentSignal, commentSignalThreshold);
+            const originalPrompt = activeAttemptView?.originalPrompt ?? result?.prompt ?? row.prompt;
+            const instructionPrompt = activeAttemptView?.instructionPrompt
+              ?? result?.instructionPrompt
+              ?? buildInstructionPromptFallback(selectedRun, originalPrompt);
+            const testPrompt = activeAttemptView?.testPrompt ?? result?.test ?? row.test;
             return (
-              <article className={`result-row ${isRunning ? "in-progress" : ""}`} key={row.taskId}>
-                <button type="button" onClick={() => setExpanded((prev) => ({ ...prev, [row.taskId]: !isOpen }))}>
+              <article className={`result-row ${groupIsRunning ? "in-progress" : ""}`} key={group.taskId}>
+                <button type="button" onClick={() => setExpanded((prev) => ({ ...prev, [group.taskId]: !isOpen }))}>
                   {isOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-                  <span className={`${row.status}-pill`}>{isRunning ? "running" : row.status}</span>
-                  <strong>{row.taskId}</strong>
+                  <span className={`${groupStatus}-pill`}>{groupStatus === "running" ? "running" : groupStatus}</span>
+                  <strong>{group.taskId}</strong>
                   <small>
-                    #{row.index} · {row.entryPoint || "entry point pending"} · {isRunning ? "in progress" : formatMs(result?.generationMs)}
-                    {result ? ` · ${assertsPassed}/${result.tests.length} asserts · ${pct(assertScore)}` : ""}
+                    #{group.index} · {row.entryPoint || group.entryPoint || "entry point pending"} · {passedPasses}/{completedPasses || 0} passes passing
+                    {passTotal > 1 ? ` · ${completedPasses}/${passTotal} passes complete` : ""}
+                    {result ? ` · ${passRangeLabel(activePassGroup.startPass, activePassGroup.endPass, passTotal)} · ${assertsPassed}/${result.tests.length} asserts · ${pct(assertScore)}` : ""}
+                    {isRunning ? " · in progress" : result ? ` · ${groupedGenerationLabel(activePassGroup.attempts)}` : ""}
                     {thinkingInComments ? <span className="comment-flag"><AlertTriangle size={12} /> thinking in comments</span> : null}
                   </small>
                 </button>
                 {isOpen ? (
                   <div className="result-detail">
+                    {passTotal > 1 || group.attempts.length > 1 ? (
+                      <div className="pass-tabs" role="tablist" aria-label={`${group.taskId} passes`}>
+                        {passTabGroups.map((tabGroup) => {
+                          const attempt = tabGroup.representative;
+                          const attemptAssertsPassed = attempt.result?.tests.filter((test) => test.passed).length ?? 0;
+                          return (
+                            <button
+                              aria-selected={tabGroup.key === activePassGroup.key}
+                              className={tabGroup.key === activePassGroup.key ? "active" : ""}
+                              key={tabGroup.key}
+                              role="tab"
+                              type="button"
+                              onClick={() => setSelectedPassByTask((prev) => ({ ...prev, [group.taskId]: tabGroup.startPass }))}
+                            >
+                              <span className={`${tabGroup.status}-pill`}>
+                                {tabGroup.status === "running" ? "running" : tabGroup.status}
+                              </span>
+                              <strong>{passRangeLabel(tabGroup.startPass, tabGroup.endPass, passTotal)}</strong>
+                              <small>
+                                {attempt.result
+                                  ? `${attemptAssertsPassed}/${attempt.result.tests.length} asserts · ${groupedGenerationLabel(tabGroup.attempts)}`
+                                  : "in progress"}
+                              </small>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ) : null}
                     {isRunning ? (
                       <details open>
                         <summary>Live output</summary>
@@ -1487,6 +1912,91 @@ export default function App() {
         </section>
       </section>
     </main>
+  );
+}
+
+function PassVariabilityChart({ run }: { run: BenchRun | null }) {
+  const stats = passVariabilityStats(run);
+  const completedRows = stats.passRows.filter((row) => row.completed > 0);
+  const chartPassGroups = groupSequentialChartPasses(stats.passRows);
+  const scoreSwing = stats.maxScore - stats.minScore;
+  const hasMultiplePasses = stats.passTotal > 1;
+  const consistencyTotal = stats.taskCounts.total || 1;
+  const consistencySegments = [
+    { key: "all-pass", label: "Always pass", value: stats.taskCounts.allPass, className: "consistency-pass" },
+    { key: "mixed", label: "Mixed", value: stats.taskCounts.mixed, className: "consistency-mixed" },
+    { key: "all-fail", label: "Always fail", value: stats.taskCounts.allFail, className: "consistency-fail" }
+  ];
+
+  return (
+    <section className="variability-panel" aria-labelledby="pass-variability-title">
+      <div className="pane-head" id="pass-variability-title">Pass variability</div>
+      <div className="variability-body">
+        <div className="variability-summary">
+          <div>
+            <span>Pass spread</span>
+            <strong>{completedRows.length ? `${pct(stats.minScore)}-${pct(stats.maxScore)}` : "n/a"}</strong>
+            <small>{completedRows.length > 1 ? `${pct(scoreSwing)} swing` : "Needs completed passes"}</small>
+          </div>
+          <div>
+            <span>Mixed tasks</span>
+            <strong>{stats.taskCounts.mixed}/{stats.taskCounts.total || 0}</strong>
+            <small>At least one pass and one fail</small>
+          </div>
+          <div>
+            <span>Completed passes</span>
+            <strong>{completedRows.length}/{stats.passTotal}</strong>
+            <small>{hasMultiplePasses ? "Per-pass score below" : "Run with 2+ passes"}</small>
+          </div>
+        </div>
+
+        {run && hasMultiplePasses ? (
+          <div
+            className="pass-chart"
+            role="img"
+            aria-label={`Pass scores range from ${pct(stats.minScore)} to ${pct(stats.maxScore)} across completed passes.`}
+          >
+            {chartPassGroups.map((group) => (
+              <div className="pass-chart-row" key={group.key}>
+                <span>{passRangeLabel(group.startPass, group.endPass, stats.passTotal)}</span>
+                <div className="pass-bar-track" aria-hidden="true">
+                  <i style={{ width: `${group.row.score * 100}%` }} />
+                </div>
+                <b>{group.row.completed ? pct(group.row.score) : "pending"}</b>
+                <small>{group.row.completed ? `${group.row.passed}/${group.row.completed}` : "0/0"}</small>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="empty-copy">
+            {run ? "Run with 2+ passes to see pass-to-pass variability." : "Select a run to see pass-to-pass variability."}
+          </p>
+        )}
+
+        {stats.taskCounts.total ? (
+          <div className="consistency-block">
+            <div className="consistency-strip" aria-hidden="true">
+              {consistencySegments.map((segment) => (
+                segment.value ? (
+                  <span
+                    className={segment.className}
+                    key={segment.key}
+                    style={{ width: `${(segment.value / consistencyTotal) * 100}%` }}
+                  />
+                ) : null
+              ))}
+            </div>
+            <div className="consistency-legend">
+              {consistencySegments.map((segment) => (
+                <span key={segment.key}>
+                  <i className={segment.className} /> {segment.label} {segment.value}
+                </span>
+              ))}
+            </div>
+          </div>
+        ) : null}
+      </div>
+    </section>
   );
 }
 

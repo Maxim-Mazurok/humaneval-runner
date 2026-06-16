@@ -129,6 +129,7 @@ function runSummary(run, { includeResults = true } = {}) {
       baseUrl: run.baseUrl,
       model: run.model,
       parallelTasks: run.parallelTasks || 1,
+      passCount: run.passCount || 1,
       ...(run.publicConfig || {})
     },
     logDir: run.dir,
@@ -202,6 +203,9 @@ async function appendTaskLogs(run, result) {
   const base = {
     at: new Date().toISOString(),
     taskId: result.taskId,
+    attemptId: result.attemptId,
+    passNumber: result.passNumber,
+    passTotal: result.passTotal,
     index: result.index,
     entryPoint: result.entryPoint,
     passed: result.passed
@@ -265,7 +269,7 @@ function buildPromptMessages(problem, systemPrompt = defaultSystemPrompt, prompt
   return messages;
 }
 
-async function callModel(run, problem, index) {
+async function callModel(run, problem, index, context = {}) {
   const controller = new AbortController();
   run.abortControllers ??= new Set();
   run.abortControllers.add(controller);
@@ -281,7 +285,7 @@ async function callModel(run, problem, index) {
   };
   if (run.extraBody && Object.keys(run.extraBody).length) Object.assign(body, run.extraBody);
 
-  appendEvent(run, "prompt", { taskId: problem.task_id, index, messages, request: { ...body, messages } });
+  appendEvent(run, "prompt", { taskId: problem.task_id, index, ...context, messages, request: { ...body, messages } });
   const started = Date.now();
   try {
     const response = await fetch(`${run.baseUrl}/chat/completions`, {
@@ -323,7 +327,7 @@ async function callModel(run, problem, index) {
           try {
             parsed = JSON.parse(payload);
           } catch {
-            appendEvent(run, "raw", { taskId: problem.task_id, text: payload });
+            appendEvent(run, "raw", { taskId: problem.task_id, index, ...context, text: payload });
             continue;
           }
           if (parsed.usage) usage = parsed.usage;
@@ -335,10 +339,10 @@ async function callModel(run, problem, index) {
             transcript += part.text;
             if (part.channel === "output") output += part.text;
             if (part.channel === "thinking") thinking += part.text;
-            appendEvent(run, "token", { taskId: problem.task_id, index, ...part });
+            appendEvent(run, "token", { taskId: problem.task_id, index, ...context, ...part });
           }
           if (!parts.length && Object.keys(delta).length) {
-            appendEvent(run, "raw-delta", { taskId: problem.task_id, index, delta });
+            appendEvent(run, "raw-delta", { taskId: problem.task_id, index, ...context, delta });
           }
         }
       }
@@ -563,16 +567,15 @@ async function runHumanEval(run) {
         })();
     run.selectedIndices = selectedIndices;
     const problems = selectedIndices.map((index) => allProblems[index]);
-    run.total = problems.length;
+    const passCount = normalizePassCount(run.passCount);
+    run.passCount = passCount;
+    run.total = problems.length * passCount;
     run.activeTaskIds = [];
-    appendEvent(run, "run-started", { summary: runSummary(run, { includeResults: false }), datasetSize: allProblems.length });
-    const tasks = problems.map((problem, i) => ({
-      problem,
-      index: selectedIndices[i],
-      ordinal: i + 1
-    }));
-    let nextTask = 0;
-    const workerCount = Math.min(run.parallelTasks || 1, tasks.length || 1);
+    appendEvent(run, "run-started", {
+      summary: runSummary(run, { includeResults: false }),
+      datasetSize: allProblems.length,
+      passCount
+    });
 
     async function finishTask(result) {
       run.activeTaskIds = (run.activeTaskIds || []).filter((taskId) => taskId !== result.taskId);
@@ -585,15 +588,23 @@ async function runHumanEval(run) {
       appendEvent(run, "task-finished", { result: compactResult(result), summary: runSummary(run, { includeResults: false }) });
     }
 
-    async function runTask({ problem, index, ordinal }) {
+    async function runTask({ problem, index, ordinal, passNumber, passOrdinal, passTotal, attemptId }) {
       if (run.cancelled) throw new Error("Run cancelled.");
       run.activeTaskIds = [...new Set([...(run.activeTaskIds || []), problem.task_id])];
       run.currentTaskId = problem.task_id;
+      const context = {
+        attemptId,
+        passNumber,
+        passTotal,
+        passOrdinal
+      };
       appendEvent(run, "task-started", {
         taskId: problem.task_id,
         index,
+        ...context,
         ordinal,
-        total: problems.length,
+        total: run.total,
+        passTaskTotal: problems.length,
         entryPoint: problem.entry_point,
         prompt: problem.prompt,
         test: problem.test,
@@ -602,10 +613,13 @@ async function runHumanEval(run) {
       try {
         let generation;
         try {
-          generation = await callModel(run, problem, index);
+          generation = await callModel(run, problem, index, context);
         } catch (error) {
           const result = {
             taskId: problem.task_id,
+            attemptId,
+            passNumber,
+            passTotal,
             index,
             entryPoint: problem.entry_point,
             passed: false,
@@ -621,10 +635,13 @@ async function runHumanEval(run) {
           return;
         }
         const extractedCode = extractCode(generation.output, problem.prompt);
-        appendEvent(run, "code-extracted", { taskId: problem.task_id, index, code: extractedCode });
+        appendEvent(run, "code-extracted", { taskId: problem.task_id, index, ...context, code: extractedCode });
         const testResult = await executeTests(problem, extractedCode, run.timeoutSeconds);
         const result = {
           taskId: problem.task_id,
+          attemptId,
+          passNumber,
+          passTotal,
           index,
           entryPoint: problem.entry_point,
           passed: Boolean(testResult.passed),
@@ -655,17 +672,38 @@ async function runHumanEval(run) {
       }
     }
 
-    async function runWorker() {
+    async function runWorker(tasks, getNextTaskIndex) {
       while (true) {
         if (run.cancelled) throw new Error("Run cancelled.");
-        const taskIndex = nextTask;
-        nextTask += 1;
+        const taskIndex = getNextTaskIndex();
         if (taskIndex >= tasks.length) return;
         await runTask(tasks[taskIndex]);
       }
     }
 
-    await Promise.all(Array.from({ length: workerCount }, () => runWorker()));
+    for (let passNumber = 1; passNumber <= passCount; passNumber += 1) {
+      if (run.cancelled) throw new Error("Run cancelled.");
+      const tasks = problems.map((problem, i) => {
+        const passOrdinal = i + 1;
+        return {
+          problem,
+          index: selectedIndices[i],
+          ordinal: (passNumber - 1) * problems.length + passOrdinal,
+          passOrdinal,
+          passNumber,
+          passTotal: passCount,
+          attemptId: `${problem.task_id}::pass-${passNumber}`
+        };
+      });
+      const workerCount = Math.min(run.parallelTasks || 1, tasks.length || 1);
+      let nextTask = 0;
+      const getNextTaskIndex = () => {
+        const taskIndex = nextTask;
+        nextTask += 1;
+        return taskIndex;
+      };
+      await Promise.all(Array.from({ length: workerCount }, () => runWorker(tasks, getNextTaskIndex)));
+    }
     run.status = "completed";
     run.finishedAt = new Date().toISOString();
     run.activeTaskIds = [];
@@ -719,11 +757,24 @@ function normalizeParallelTasks(value) {
   return Math.min(64, Math.max(1, Math.floor(parsed)));
 }
 
+function normalizePassCount(value) {
+  const parsed = Number(value ?? 1);
+  if (!Number.isFinite(parsed)) return 1;
+  return Math.min(100, Math.max(1, Math.floor(parsed)));
+}
+
 async function createRun(config) {
   const baseUrl = normalizeBaseUrl(config.baseUrl);
   const allProblems = await ensureHumanEvalData();
   const selectedIndices = parseTestNumbers(config.testNumbers, allProblems.length);
   const parallelTasks = normalizeParallelTasks(config.parallelTasks);
+  const passCount = normalizePassCount(config.passCount);
+  const plannedTaskCount = selectedIndices.length || (() => {
+    const start = Math.max(0, Number(config.startIndex ?? 0));
+    const sampleLimit = Number(config.sampleLimit ?? 0);
+    const end = sampleLimit > 0 ? Math.min(allProblems.length, start + sampleLimit) : allProblems.length;
+    return Math.max(0, end - start);
+  })();
   const id = `he-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
   const createdAt = new Date().toISOString();
   const run = {
@@ -740,6 +791,7 @@ async function createRun(config) {
     maxTokens: Number(config.maxTokens ?? 2048),
     timeoutSeconds: Number(config.timeoutSeconds ?? 15),
     parallelTasks,
+    passCount,
     sampleLimit: Number(config.sampleLimit ?? 0),
     startIndex: Number(config.startIndex ?? 0),
     selectedIndices,
@@ -753,6 +805,7 @@ async function createRun(config) {
       maxTokens: Number(config.maxTokens ?? 2048),
       timeoutSeconds: Number(config.timeoutSeconds ?? 15),
       parallelTasks,
+      passCount,
       sampleLimit: Number(config.sampleLimit ?? 0),
       startIndex: Number(config.startIndex ?? 0),
       testNumbers: String(config.testNumbers || ""),
@@ -760,7 +813,7 @@ async function createRun(config) {
       promptTemplate: String(config.promptTemplate ?? defaultPromptTemplate),
       extraBody: config.extraBody && typeof config.extraBody === "object" ? config.extraBody : {}
     },
-    total: 0,
+    total: plannedTaskCount * passCount,
     completed: 0,
     passed: 0,
     failed: 0,
@@ -796,6 +849,7 @@ async function loadPersistedRuns() {
         dir,
         publicConfig: persisted.config || persisted.publicConfig || {},
         parallelTasks: normalizeParallelTasks(persisted.config?.parallelTasks ?? persisted.publicConfig?.parallelTasks ?? persisted.parallelTasks),
+        passCount: normalizePassCount(persisted.config?.passCount ?? persisted.publicConfig?.passCount ?? persisted.passCount),
         activeTaskIds: [],
         events: [],
         eventSeq: 0,

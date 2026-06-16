@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
@@ -21,6 +21,7 @@ type RunFixture = {
   assertionScore: number;
   currentTaskId: string | null;
   selectedIndices?: number[];
+  config?: Record<string, unknown>;
   activeTaskIds?: string[];
   results: Array<Record<string, unknown>>;
 };
@@ -358,6 +359,346 @@ describe("App notifications", () => {
     expect(container.textContent).not.toContain("Task prompt pending.");
   });
 
+  it("merges equal adjacent passes in the variability chart without merging distinct task outputs", async () => {
+    window.history.replaceState(null, "", "/run/run-1");
+    const multiPassRun = baseRun({
+      status: "completed",
+      total: 4,
+      completed: 4,
+      passed: 3,
+      failed: 1,
+      liveScore: 0.75,
+      finalScore: 0.75,
+      config: { passCount: 4 },
+      results: [
+        {
+          taskId: "HumanEval/0",
+          attemptId: "HumanEval/0::pass-1",
+          passNumber: 1,
+          passTotal: 4,
+          index: 0,
+          entryPoint: "foo",
+          passed: true,
+          tests: [{ source: "assert foo(1) == 1", passed: true }],
+          prompt: "def foo(x): pass",
+          test: "assert foo(1) == 1",
+          rawOutput: "pass one",
+          extractedCode: "def foo(x): return x",
+          generationMs: 1000
+        },
+        {
+          taskId: "HumanEval/0",
+          attemptId: "HumanEval/0::pass-2",
+          passNumber: 2,
+          passTotal: 4,
+          index: 0,
+          entryPoint: "foo",
+          passed: true,
+          tests: [{ source: "assert foo(2) == 2", passed: true }],
+          prompt: "def foo(x): pass",
+          test: "assert foo(2) == 2",
+          rawOutput: "pass two",
+          extractedCode: "def foo(x): return x",
+          generationMs: 1100
+        },
+        {
+          taskId: "HumanEval/0",
+          attemptId: "HumanEval/0::pass-3",
+          passNumber: 3,
+          passTotal: 4,
+          index: 0,
+          entryPoint: "foo",
+          passed: false,
+          tests: [{ source: "assert foo(3) == 3", passed: false, actual: "1", expected: "3", operator: "==" }],
+          prompt: "def foo(x): pass",
+          test: "assert foo(3) == 3",
+          rawOutput: "pass three",
+          extractedCode: "def foo(x): return 1",
+          generationMs: 1200
+        },
+        {
+          taskId: "HumanEval/0",
+          attemptId: "HumanEval/0::pass-4",
+          passNumber: 4,
+          passTotal: 4,
+          index: 0,
+          entryPoint: "foo",
+          passed: true,
+          tests: [{ source: "assert foo(4) == 4", passed: true }],
+          prompt: "def foo(x): pass",
+          test: "assert foo(4) == 4",
+          rawOutput: "pass four",
+          extractedCode: "def foo(x): return x",
+          generationMs: 900
+        }
+      ]
+    } as Partial<RunFixture>);
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/api/humaneval/runs")) {
+        return jsonResponse({ runs: [multiPassRun] });
+      }
+      return jsonResponse({ ...multiPassRun, events: [] });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { container } = render(<App />);
+
+    await screen.findByText("HumanEval/0");
+    const variabilityRegion = screen.getByRole("region", { name: /pass variability/i });
+    expect(within(variabilityRegion).getByText("Pass variability")).toBeInTheDocument();
+    expect(within(variabilityRegion).getByText("100% swing")).toBeInTheDocument();
+    expect(within(variabilityRegion).getByText("Pass 1 - 2")).toBeInTheDocument();
+    expect(within(variabilityRegion).getByText("Pass 3")).toBeInTheDocument();
+    expect(within(variabilityRegion).getByText("Pass 4")).toBeInTheDocument();
+    expect(screen.getAllByText("1/1").length).toBeGreaterThan(0);
+    expect(screen.getByText("0/1")).toBeInTheDocument();
+    expect(container.textContent).toMatch(/Mixed\s*1/);
+    expect(screen.getAllByText("HumanEval/0")).toHaveLength(1);
+    await userEvent.click(screen.getByRole("button", { name: /HumanEval\/0/i }));
+    expect(screen.getByRole("tab", { name: /pass 1/i })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /pass 2/i })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /pass 3/i })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /pass 4/i })).toBeInTheDocument();
+    expect(container.textContent).toContain("assert foo(1) == 1");
+
+    await userEvent.click(screen.getByRole("tab", { name: /pass 3/i }));
+
+    await waitFor(() => expect(container.textContent).toContain("assert foo(3) == 3"));
+    expect(container.textContent).toContain("expected: 3");
+  });
+
+  it("merges sequential pending passes in the variability chart", async () => {
+    window.history.replaceState(null, "", "/run/run-1");
+    const pendingRun = baseRun({
+      status: "running",
+      total: 4,
+      completed: 1,
+      passed: 1,
+      failed: 0,
+      liveScore: 0.25,
+      currentTaskId: "HumanEval/0",
+      config: { passCount: 4 },
+      results: [
+        {
+          taskId: "HumanEval/0",
+          attemptId: "HumanEval/0::pass-1",
+          passNumber: 1,
+          passTotal: 4,
+          index: 0,
+          entryPoint: "foo",
+          passed: true,
+          tests: [{ source: "assert foo(1) == 1", passed: true }],
+          prompt: "def foo(x): pass",
+          test: "assert foo(1) == 1",
+          rawOutput: "pass one",
+          extractedCode: "def foo(x): return x",
+          generationMs: 1000
+        }
+      ],
+      events: [
+        {
+          type: "task-started",
+          at: "2026-06-16T00:00:01.000Z",
+          data: { taskId: "HumanEval/0", attemptId: "HumanEval/0::pass-2", passNumber: 2, passTotal: 4, index: 0, entryPoint: "foo" }
+        },
+        {
+          type: "task-started",
+          at: "2026-06-16T00:00:02.000Z",
+          data: { taskId: "HumanEval/0", attemptId: "HumanEval/0::pass-3", passNumber: 3, passTotal: 4, index: 0, entryPoint: "foo" }
+        },
+        {
+          type: "task-started",
+          at: "2026-06-16T00:00:03.000Z",
+          data: { taskId: "HumanEval/0", attemptId: "HumanEval/0::pass-4", passNumber: 4, passTotal: 4, index: 0, entryPoint: "foo" }
+        }
+      ]
+    } as Partial<RunFixture>);
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/api/humaneval/runs")) {
+        return jsonResponse({ runs: [pendingRun] });
+      }
+      return jsonResponse(pendingRun);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+
+    await screen.findByText("HumanEval/0");
+    const variabilityRegion = screen.getByRole("region", { name: /pass variability/i });
+    expect(within(variabilityRegion).getByText("Pass 1")).toBeInTheDocument();
+    expect(within(variabilityRegion).getByText("Pass 2 - 4")).toBeInTheDocument();
+  });
+
+  it("merges task tabs when timing is the only difference and shows a time range", async () => {
+    window.history.replaceState(null, "", "/run/run-1");
+    const groupedTaskRun = baseRun({
+      status: "completed",
+      total: 2,
+      completed: 2,
+      passed: 2,
+      failed: 0,
+      liveScore: 1,
+      finalScore: 1,
+      config: { passCount: 2 },
+      results: [
+        {
+          taskId: "HumanEval/0",
+          attemptId: "HumanEval/0::pass-1",
+          passNumber: 1,
+          passTotal: 2,
+          index: 0,
+          entryPoint: "foo",
+          passed: true,
+          tests: [{ source: "assert foo(1) == 1", passed: true }],
+          prompt: "def foo(x): pass",
+          test: "assert foo(1) == 1",
+          rawOutput: "same output",
+          extractedCode: "def foo(x): return x",
+          generationMs: 1000
+        },
+        {
+          taskId: "HumanEval/0",
+          attemptId: "HumanEval/0::pass-2",
+          passNumber: 2,
+          passTotal: 2,
+          index: 0,
+          entryPoint: "foo",
+          passed: true,
+          tests: [{ source: "assert foo(1) == 1", passed: true }],
+          prompt: "def foo(x): pass",
+          test: "assert foo(1) == 1",
+          rawOutput: "same output",
+          extractedCode: "def foo(x): return x",
+          generationMs: 1200
+        }
+      ]
+    } as Partial<RunFixture>);
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/api/humaneval/runs")) {
+        return jsonResponse({ runs: [groupedTaskRun] });
+      }
+      return jsonResponse({ ...groupedTaskRun, events: [] });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { container } = render(<App />);
+
+    await screen.findByText("HumanEval/0");
+    await userEvent.click(screen.getByRole("button", { name: /HumanEval\/0/i }));
+    expect(screen.getByRole("tab", { name: /pass 1 - 2/i })).toBeInTheDocument();
+    expect(screen.getAllByRole("tab")).toHaveLength(1);
+    expect(container.textContent).toContain("1.0s - 1.2s");
+  });
+
+  it("merges a completed pass into an existing identical group after live output was present", async () => {
+    window.history.replaceState(null, "", "/run/run-1");
+    const runningRun = baseRun({
+      status: "running",
+      total: 2,
+      completed: 1,
+      passed: 1,
+      failed: 0,
+      liveScore: 0.5,
+      currentTaskId: "HumanEval/0",
+      activeTaskIds: ["HumanEval/0"],
+      config: { passCount: 2 },
+      results: [
+        {
+          taskId: "HumanEval/0",
+          attemptId: "HumanEval/0::pass-1",
+          passNumber: 1,
+          passTotal: 2,
+          index: 0,
+          entryPoint: "foo",
+          passed: true,
+          tests: [{ source: "assert foo(1) == 1", passed: true }],
+          prompt: "def foo(x): pass",
+          test: "assert foo(1) == 1",
+          rawOutput: "same output",
+          extractedCode: "def foo(x): return x",
+          generationMs: 1000
+        }
+      ]
+    } as Partial<RunFixture>);
+    const completedRun = {
+      ...runningRun,
+      status: "completed",
+      completed: 2,
+      passed: 2,
+      failed: 0,
+      liveScore: 1,
+      finalScore: 1,
+      finishedAt: "2026-06-16T00:00:03.000Z",
+      currentTaskId: null,
+      activeTaskIds: [],
+      results: [
+        ...runningRun.results,
+        {
+          taskId: "HumanEval/0",
+          attemptId: "HumanEval/0::pass-2",
+          passNumber: 2,
+          passTotal: 2,
+          index: 0,
+          entryPoint: "foo",
+          passed: true,
+          tests: [{ source: "assert foo(1) == 1", passed: true }],
+          prompt: "def foo(x): pass",
+          test: "assert foo(1) == 1",
+          rawOutput: "same output",
+          extractedCode: "def foo(x): return x",
+          generationMs: 1200
+        }
+      ]
+    };
+    let detailFetches = 0;
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/api/humaneval/runs")) {
+        return jsonResponse({ runs: [runningRun] });
+      }
+      detailFetches += 1;
+      if (detailFetches === 1) {
+        return jsonResponse({
+          ...runningRun,
+          events: [
+            {
+              type: "task-started",
+              at: "2026-06-16T00:00:01.000Z",
+              data: { taskId: "HumanEval/0", attemptId: "HumanEval/0::pass-2", passNumber: 2, passTotal: 2, index: 0, entryPoint: "foo" }
+            },
+            {
+              type: "token",
+              at: "2026-06-16T00:00:02.000Z",
+              data: { taskId: "HumanEval/0", attemptId: "HumanEval/0::pass-2", passNumber: 2, index: 0, channel: "output", text: "temporary live output" }
+            }
+          ]
+        });
+      }
+      return jsonResponse({ ...completedRun, events: [] });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+
+    await screen.findByText("HumanEval/0");
+    expect(screen.getByRole("tab", { name: /pass 1/i })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /pass 2/i })).toBeInTheDocument();
+
+    FakeEventSource.instances[0].emit("task-finished", {
+      type: "task-finished",
+      at: "2026-06-16T00:00:03.000Z",
+      data: { summary: completedRun }
+    });
+
+    await waitFor(() => expect(screen.getByRole("button", { name: /HumanEval\/0/i })).toBeInTheDocument());
+    await userEvent.click(screen.getByRole("button", { name: /HumanEval\/0/i }));
+    expect(screen.getByRole("tab", { name: /pass 1 - 2/i })).toBeInTheDocument();
+    expect(screen.getAllByRole("tab")).toHaveLength(1);
+  });
+
   it("shows speed total as a projected full benchmark duration while running", async () => {
     const startedAt = new Date(Date.now() - 25_000).toISOString();
     const runningRun = baseRun({
@@ -410,10 +751,11 @@ describe("App notifications", () => {
     await userEvent.click(await screen.findByRole("button", { name: /running.*demo-model|demo-model.*running/i }));
 
     await screen.findByText("Speed");
-    expect(screen.getByText("Per task")).toBeInTheDocument();
-    expect(screen.getByText("10s")).toBeInTheDocument();
-    expect(screen.getByText("Total")).toBeInTheDocument();
-    expect(screen.getByText("~40s")).toBeInTheDocument();
+    const speedMetric = screen.getByText("Speed").closest(".bench-metric") as HTMLElement;
+    expect(within(speedMetric).getByText("Per task")).toBeInTheDocument();
+    expect(within(speedMetric).getByText("10s")).toBeInTheDocument();
+    expect(within(speedMetric).getByText("Total")).toBeInTheDocument();
+    expect(within(speedMetric).getByText("~40s")).toBeInTheDocument();
   });
 
   it("does not notify for a run that was disabled from its ETA card", async () => {
@@ -492,6 +834,36 @@ describe("App notifications", () => {
     await waitFor(() => expect(screen.getByPlaceholderText("provider/model-name")).toHaveValue("deep-link-model"));
     expect(screen.getByText("completed")).toBeInTheDocument();
     expect(window.location.pathname).toBe("/run/run-2");
+  });
+
+  it("shows total and current pass completion in the completed metric", async () => {
+    window.history.replaceState(null, "", "/run/run-1");
+    const run = baseRun({
+      status: "running",
+      total: 4,
+      completed: 3,
+      passed: 2,
+      failed: 1,
+      liveScore: 2 / 3,
+      config: { passCount: 2 }
+    });
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/api/humaneval/runs")) {
+        return jsonResponse({ runs: [run] });
+      }
+      return jsonResponse({ ...run, events: [] });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+
+    await screen.findByText("Completed");
+    const completedMetric = screen.getByText("Completed").closest(".bench-metric") as HTMLElement;
+    expect(within(completedMetric).getByText("Total:")).toBeInTheDocument();
+    expect(within(completedMetric).getByText("75% (3/4)")).toBeInTheDocument();
+    expect(within(completedMetric).getByText("2nd pass:")).toBeInTheDocument();
+    expect(within(completedMetric).getByText("50% (1/2)")).toBeInTheDocument();
   });
 
   it("keeps browser back and forward in sync with selected bench", async () => {
