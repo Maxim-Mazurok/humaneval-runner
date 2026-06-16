@@ -290,6 +290,74 @@ describe("App notifications", () => {
     expect(screen.getByRole("button", { name: /disable finish notification/i })).toBeInTheDocument();
   });
 
+  it("keeps full live output and running task prompts after many tokens", async () => {
+    window.history.replaceState(null, "", "/run/run-1");
+    const runningRun = baseRun({
+      status: "running",
+      currentTaskId: "HumanEval/0",
+      activeTaskIds: ["HumanEval/0"],
+      config: {
+        systemPrompt: "SYSTEM PROMPT",
+        promptTemplate: "USER PROMPT\n%problem_code%"
+      }
+    } as Partial<RunFixture>);
+    const taskPrompt = "def foo(x):\n    \"\"\"Return x.\"\"\"\n";
+    const events = [
+      {
+        type: "task-started",
+        at: "2026-06-16T00:00:01.000Z",
+        data: {
+          taskId: "HumanEval/0",
+          index: 0,
+          entryPoint: "foo",
+          prompt: taskPrompt,
+          test: "assert foo(1) == 1"
+        }
+      },
+      {
+        type: "prompt",
+        at: "2026-06-16T00:00:01.100Z",
+        data: {
+          taskId: "HumanEval/0",
+          index: 0,
+          messages: [
+            { role: "system", content: "SYSTEM PROMPT" },
+            { role: "user", content: `USER PROMPT\n${taskPrompt}` }
+          ]
+        }
+      },
+      ...Array.from({ length: 6001 }, (_, index) => ({
+        type: "token",
+        at: "2026-06-16T00:00:02.000Z",
+        data: {
+          taskId: "HumanEval/0",
+          index: 0,
+          channel: "thinking",
+          text: `token-${index} `
+        }
+      }))
+    ];
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/api/humaneval/runs")) {
+        return jsonResponse({ runs: [runningRun] });
+      }
+      return jsonResponse({ ...runningRun, events });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { container } = render(<App />);
+
+    await screen.findByText("Live output");
+    await waitFor(() => expect(container.textContent).toContain("token-6000"));
+    expect(container.textContent).toContain("token-0");
+    expect(container.textContent).toContain("SYSTEM:\nSYSTEM PROMPT");
+    expect(container.textContent).toContain(`USER PROMPT\n${taskPrompt}`);
+    expect(container.textContent).toContain(taskPrompt);
+    expect(container.textContent).not.toContain("Prompt pending.");
+    expect(container.textContent).not.toContain("Task prompt pending.");
+  });
+
   it("shows speed total as a projected full benchmark duration while running", async () => {
     const startedAt = new Date(Date.now() - 25_000).toISOString();
     const runningRun = baseRun({

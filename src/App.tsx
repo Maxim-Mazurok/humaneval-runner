@@ -163,6 +163,12 @@ type TaskRow = StartedTask & {
   result?: BenchResult;
 };
 
+type TaskPromptInfo = {
+  prompt?: string;
+  instructionPrompt?: string;
+  test?: string;
+};
+
 type CommentLineStats = {
   commentLines: number;
   codeLines: number;
@@ -740,6 +746,26 @@ function orderedChannelOutput(taskTokens: TokenEvent[] = []) {
   });
 }
 
+function formatPromptMessages(messages: unknown) {
+  if (!Array.isArray(messages)) return undefined;
+  const formatted = messages.map((message) => {
+    if (!message || typeof message !== "object") return "";
+    const role = "role" in message ? String(message.role || "").toUpperCase() : "";
+    const content = "content" in message ? String(message.content || "") : "";
+    if (!role && !content) return "";
+    return role ? `${role}:\n${content}` : content;
+  }).filter(Boolean);
+  return formatted.length ? formatted.join("\n\n") : undefined;
+}
+
+function buildInstructionPromptFallback(run: BenchRun | null, originalPrompt?: string) {
+  if (!originalPrompt) return undefined;
+  const systemContent = run?.config?.systemPrompt ?? DEFAULT_SYSTEM_PROMPT;
+  const userTemplate = run?.config?.promptTemplate ?? DEFAULT_PROMPT_TEMPLATE;
+  const userContent = String(userTemplate || DEFAULT_PROMPT_TEMPLATE).replaceAll("%problem_code%", originalPrompt);
+  return `SYSTEM:\n${systemContent}\n\nUSER:\n${userContent}`;
+}
+
 export default function App() {
   const initialRoute = useMemo(() => readBenchRoute(), []);
   const [baseUrl, setBaseUrl] = useState(DEFAULT_FORM_VALUES.baseUrl);
@@ -806,6 +832,36 @@ export default function App() {
     return grouped;
   }, [tokens]);
 
+  const promptInfoByTask = useMemo(() => {
+    const grouped = new Map<string, TaskPromptInfo>();
+    const update = (taskId: string, next: TaskPromptInfo) => {
+      if (!taskId) return;
+      grouped.set(taskId, { ...(grouped.get(taskId) || {}), ...next });
+    };
+    for (const event of events) {
+      const taskId = String(event.data.taskId || "");
+      if (event.type === "task-started") {
+        update(taskId, {
+          prompt: typeof event.data.prompt === "string" ? event.data.prompt : undefined,
+          test: typeof event.data.test === "string" ? event.data.test : undefined
+        });
+      }
+      if (event.type === "prompt") {
+        update(taskId, {
+          instructionPrompt: formatPromptMessages(event.data.messages)
+        });
+      }
+    }
+    for (const result of selectedRun?.results ?? []) {
+      update(result.taskId, {
+        prompt: result.prompt,
+        instructionPrompt: result.instructionPrompt,
+        test: result.test
+      });
+    }
+    return grouped;
+  }, [events, selectedRun]);
+
   const taskRows = useMemo(() => {
     const rows = new Map<string, TaskRow>();
     for (const event of events) {
@@ -827,10 +883,13 @@ export default function App() {
       const tokenIndex = tokensByTask.get(taskId)?.find((token) => Number.isFinite(token.index))?.index;
       const parsedIndex = Number(taskId.match(/HumanEval\/(\d+)$/)?.[1]);
       const fallbackIndex = Number.isFinite(parsedIndex) ? parsedIndex : Number.MAX_SAFE_INTEGER;
+      const promptInfo = promptInfoByTask.get(taskId);
       rows.set(taskId, {
         taskId,
         index: Number.isFinite(tokenIndex) ? Number(tokenIndex) : fallbackIndex,
         entryPoint: "",
+        prompt: promptInfo?.prompt,
+        test: promptInfo?.test,
         status: "running"
       });
     }
@@ -846,7 +905,7 @@ export default function App() {
       });
     }
     return [...rows.values()].sort((left, right) => left.index - right.index);
-  }, [events, selectedRun, tokensByTask]);
+  }, [events, promptInfoByTask, selectedRun, tokensByTask]);
 
   useEffect(() => {
     selectedRunIdRef.current = selectedRunId;
@@ -1014,8 +1073,8 @@ export default function App() {
         if (latestTaskStartedAtMs) {
           setTaskStartedAtByRun((previous) => ({ ...previous, [json.id]: latestTaskStartedAtMs }));
         }
-        setEvents(runEvents.slice(-400));
-        setTokens(tokenEvents.map((event) => event.data as unknown as TokenEvent).slice(-6000));
+        setEvents(runEvents);
+        setTokens(tokenEvents.map((event) => event.data as unknown as TokenEvent));
       })
       .catch((runError) => setError(runError instanceof Error ? runError.message : String(runError)));
   }, [selectedRunId]);
@@ -1078,7 +1137,7 @@ export default function App() {
       }
       const currentSelectedRunId = selectedRunIdRef.current;
       if (runId === currentSelectedRunId) {
-        setEvents((prev) => [...prev.slice(-400), event]);
+        setEvents((prev) => [...prev, event]);
         if (event.type === "task-started") {
           const timestamp = new Date(event.at).getTime();
           if (Number.isFinite(timestamp)) {
@@ -1087,7 +1146,7 @@ export default function App() {
         }
         if (event.type === "token") {
           const data = event.data as unknown as TokenEvent;
-          setTokens((prev) => [...prev.slice(-6000), data]);
+          setTokens((prev) => [...prev, data]);
         }
         if (event.type === "task-finished") {
           fetch(`${BENCH_API}/api/humaneval/runs/${runId}`)
@@ -1382,6 +1441,12 @@ export default function App() {
             const assertScore = result?.tests.length ? assertsPassed / result.tests.length : 0;
             const commentSignal = analyzeThinkingComments(result);
             const thinkingInComments = commentSignalIsFlagged(commentSignal, commentSignalThreshold);
+            const promptInfo = promptInfoByTask.get(row.taskId);
+            const originalPrompt = result?.prompt || promptInfo?.prompt || row.prompt;
+            const instructionPrompt = result?.instructionPrompt
+              || promptInfo?.instructionPrompt
+              || buildInstructionPromptFallback(selectedRun, originalPrompt);
+            const testPrompt = result?.test || promptInfo?.test || row.test;
             return (
               <article className={`result-row ${isRunning ? "in-progress" : ""}`} key={row.taskId}>
                 <button type="button" onClick={() => setExpanded((prev) => ({ ...prev, [row.taskId]: !isOpen }))}>
@@ -1407,12 +1472,12 @@ export default function App() {
                     {result?.modelError ? <pre>{result.modelError}</pre> : null}
                     {thinkingInComments ? <details open><summary>Thinking in comments</summary><pre className="comment-signal">{formatCommentSignal(commentSignal, commentSignalThreshold)}</pre></details> : null}
                     {result ? <details open><summary>Assert ledger</summary>{result.tests.map((test, index) => <pre key={index} className={test.passed ? "assert-pass" : "assert-fail"}>{formatAssert(test)}</pre>)}</details> : null}
-                    <details open><summary>Prompt sent to model</summary><pre>{result?.instructionPrompt || row.prompt || "Prompt pending."}</pre></details>
-                    <details><summary>Original HumanEval task</summary><pre>{result?.prompt || row.prompt || "Task prompt pending."}</pre></details>
+                    <details open><summary>Prompt sent to model</summary><pre>{instructionPrompt || "Prompt pending."}</pre></details>
+                    <details><summary>Original HumanEval task</summary><pre>{originalPrompt || "Task prompt pending."}</pre></details>
                     {result ? <details><summary>Thinking</summary><pre>{result.thinkingOutput || "No separate thinking stream captured."}</pre></details> : null}
                     {result ? <details><summary>Raw output</summary><pre>{result.rawOutput}</pre></details> : null}
                     {result ? <details><summary>Extracted code</summary><pre>{result.extractedCode}</pre></details> : null}
-                    <details><summary>HumanEval tests</summary><pre>{result?.test || row.test || "Tests pending."}</pre></details>
+                    <details><summary>HumanEval tests</summary><pre>{testPrompt || "Tests pending."}</pre></details>
                     {result ? <details><summary>Traceback / harness</summary><pre>{result.traceback || result.error || result.harnessStderr || "No harness error."}</pre></details> : null}
                   </div>
                 ) : null}
