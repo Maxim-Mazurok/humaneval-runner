@@ -19,9 +19,11 @@ const taskLogWriteQueues = new Map();
 const maxReplayEvents = 5000;
 const defaultSystemPrompt = [
   "You are completing a Python programming task.",
-  "Return only Python code.",
   "Implement the requested function exactly as described.",
-  "Use only the Python standard library."
+  "Prioritize functional correctness above all else.",
+  "Use straightforward, readable Python.",
+  "Use only the Python standard library.",
+  "Return only the requested code. Do not include explanations."
 ].join("\n");
 const defaultPromptTemplate = [
   "Goal:",
@@ -29,7 +31,7 @@ const defaultPromptTemplate = [
   "- Return Python code that can be executed by a test harness.",
   "",
   "Response format:",
-  "- Output only Python code.",
+  "- Output one markdown multiline code block with python syntax.",
   "- Returning the complete code, including everything required to run: the original signature function, any supporting functions that were already implemented, and any required imports (from standard libraries only).",
   "- Preserve the function name(s), arguments, and return behavior implied by the prompt.",
   "",

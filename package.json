@@ -22,6 +22,10 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "dev:bench": "node scripts/humaneval-server.mjs",
+    "test": "vitest run",
+    "test:unit": "vitest run src/notifications.test.ts",
+    "test:integration": "vitest run src/App.integration.test.tsx",
+    "test:e2e": "playwright test",
     "build": "tsc && vite build",
     "preview": "vite preview --host 0.0.0.0"
   },
@@ -33,8 +37,14 @@
     "vite": "^7.2.6"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.0",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
-    "typescript": "^5.9.3"
+    "jsdom": "^29.1.1",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.9"
   }
 }
