@@ -86,7 +86,8 @@ chat completion request. For example:
 
 ## Run Artifacts
 
-Runs are written under `benchmark-runs/<run-id>/`:
+Runs are written under `benchmark-runs/<started-at>-<model>-<run-id>/`, with
+the timestamp first so folders sort by start time:
 
 - `run.json` contains the run summary and public configuration.
 - `results.json` contains task results, extracted code, prompts, harness output,

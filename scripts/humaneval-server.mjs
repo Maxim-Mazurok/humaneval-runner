@@ -43,7 +43,7 @@ function sendJson(res, status, payload) {
   res.writeHead(status, {
     "content-type": "application/json; charset=utf-8",
     "access-control-allow-origin": "*",
-    "access-control-allow-methods": "GET,POST,OPTIONS",
+    "access-control-allow-methods": "GET,POST,DELETE,OPTIONS",
     "access-control-allow-headers": "content-type,authorization"
   });
   res.end(JSON.stringify(payload));
@@ -122,7 +122,11 @@ function runSummary(run, { includeResults = true } = {}) {
     assertionsTotal,
     assertionScore: assertionsTotal ? assertionsPassed / assertionsTotal : 0,
     currentTaskId: run.currentTaskId,
-    config: run.publicConfig,
+    config: {
+      baseUrl: run.baseUrl,
+      model: run.model,
+      ...(run.publicConfig || {})
+    },
     logDir: run.dir,
     selectedIndices: run.selectedIndices,
     results: includeResults ? run.results : []
@@ -133,8 +137,36 @@ function persistedRunState(run) {
   return runSummary(run, { includeResults: false });
 }
 
+function formatRunDirTimestamp(value) {
+  return new Date(value).toISOString().replaceAll(":", "-").replaceAll(".", "-");
+}
+
+function slugifyRunPart(value, fallback = "model") {
+  const slug = String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80);
+  return slug || fallback;
+}
+
+function runDirName(run) {
+  return [
+    formatRunDirTimestamp(run.startedAt || run.createdAt),
+    slugifyRunPart(run.model),
+    run.id
+  ].join("-");
+}
+
+function ensureRunDir(run) {
+  if (!run.dir) run.dir = join(runsDir, runDirName(run));
+  return run.dir;
+}
+
 async function writeRunArtifacts(run) {
-  if (!run.dir) return;
+  if (run.deleted) return;
+  ensureRunDir(run);
   await fs.mkdir(run.dir, { recursive: true });
   await Promise.all([
     fs.writeFile(join(run.dir, "run.json"), JSON.stringify(persistedRunState(run), null, 2)),
@@ -143,15 +175,18 @@ async function writeRunArtifacts(run) {
 }
 
 function persistRunArtifacts(run) {
+  if (run.deleted) return;
   writeRunArtifacts(run).catch((error) => {
     console.error(`Failed to persist run ${run.id}:`, error);
   });
 }
 
 async function appendTaskLogLine(run, entry) {
-  if (!run.dir) return;
+  if (run.deleted) return;
+  ensureRunDir(run);
   const previous = taskLogWriteQueues.get(run.id) || Promise.resolve();
   const next = previous.then(async () => {
+    if (run.deleted) return;
     await fs.mkdir(run.dir, { recursive: true });
     await fs.appendFile(join(run.dir, "task-logs.jsonl"), `${JSON.stringify(entry)}\n`);
   });
@@ -178,6 +213,7 @@ async function appendTaskLogs(run, result) {
 }
 
 function appendEvent(run, type, data = {}) {
+  if (run.deleted) return;
   run.eventSeq = (run.eventSeq || 0) + 1;
   const event = {
     id: run.eventSeq,
@@ -501,8 +537,10 @@ async function executeTests(problem, code, timeoutSeconds) {
 }
 
 async function runHumanEval(run) {
+  if (run.deleted) return;
   run.status = "running";
-  run.startedAt = new Date().toISOString();
+  run.startedAt = run.startedAt || new Date().toISOString();
+  ensureRunDir(run);
   try {
     const allProblems = await ensureHumanEvalData();
     const selectedIndices = run.selectedIndices?.length
@@ -637,12 +675,12 @@ async function createRun(config) {
   const allProblems = await ensureHumanEvalData();
   const selectedIndices = parseTestNumbers(config.testNumbers, allProblems.length);
   const id = `he-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-  const dir = join(runsDir, id);
+  const createdAt = new Date().toISOString();
   const run = {
     id,
-    dir,
+    dir: null,
     status: "queued",
-    createdAt: new Date().toISOString(),
+    createdAt,
     startedAt: null,
     finishedAt: null,
     model: String(config.model || "").trim(),
@@ -658,6 +696,8 @@ async function createRun(config) {
     promptTemplate: String(config.promptTemplate ?? defaultPromptTemplate),
     extraBody: config.extraBody && typeof config.extraBody === "object" ? config.extraBody : {},
     publicConfig: {
+      baseUrl,
+      model: String(config.model || "").trim(),
       temperature: Number(config.temperature ?? 0),
       maxTokens: Number(config.maxTokens ?? 2048),
       timeoutSeconds: Number(config.timeoutSeconds ?? 15),
@@ -682,7 +722,6 @@ async function createRun(config) {
   };
   if (!run.model) throw new Error("Model name is required.");
   runs.set(id, run);
-  await writeRunArtifacts(run);
   queueMicrotask(() => runHumanEval(run));
   return run;
 }
@@ -743,6 +782,17 @@ const server = createServer(async (req, res) => {
     if (runMatch) {
       const run = runs.get(runMatch[1]);
       if (!run) return sendJson(res, 404, { error: "Run not found" });
+      if (req.method === "DELETE" && !runMatch[2]) {
+        run.deleted = true;
+        run.cancelled = true;
+        run.abortController?.abort();
+        for (const client of run.clients) client.end();
+        run.clients.clear();
+        runs.delete(run.id);
+        taskLogWriteQueues.delete(run.id);
+        if (run.dir) await fs.rm(run.dir, { recursive: true, force: true });
+        return sendJson(res, 200, { ok: true });
+      }
       if (req.method === "GET" && !runMatch[2]) return sendJson(res, 200, { ...runSummary(run), events: run.events });
       if (req.method === "POST" && runMatch[2] === "cancel") {
         run.cancelled = true;

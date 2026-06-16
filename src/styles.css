@@ -202,6 +202,10 @@ button {
   border: 1px solid var(--line);
 }
 
+.notify-action {
+  width: 100%;
+}
+
 .primary-action:disabled,
 .secondary-action:disabled {
   cursor: not-allowed;
@@ -234,13 +238,20 @@ button {
 }
 
 .run-tab {
+  position: relative;
+  min-width: 0;
+  background: #ffffff;
+}
+
+.run-tab-main {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   gap: 3px 9px;
+  width: 100%;
   min-height: 68px;
-  padding: 11px 12px;
+  padding: 11px 42px 11px 12px;
   text-align: left;
-  background: #ffffff;
+  background: transparent;
   border: 0;
 }
 
@@ -249,22 +260,52 @@ button {
   box-shadow: inset 0 -3px 0 var(--green);
 }
 
-.run-tab strong,
-.run-tab small {
+.run-tab-main strong,
+.run-tab-main small {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.run-tab strong {
+.run-tab-main strong {
   font-size: 13px;
 }
 
-.run-tab small {
+.run-tab-main small {
   grid-column: 2;
   color: var(--muted);
   font-size: 11px;
   font-weight: 750;
+}
+
+.run-delete {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  color: #8a2d18;
+  background: #ffffff;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 140ms ease, border-color 140ms ease, background 140ms ease;
+}
+
+.run-tab:hover .run-delete,
+.run-tab:focus-within .run-delete {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.run-delete:hover,
+.run-delete:focus-visible {
+  background: #ffe6e1;
+  border-color: #e2a198;
 }
 
 .status-dot {
@@ -305,7 +346,14 @@ button {
   font-weight: 800;
 }
 
+.bench-score small {
+  color: #7c8378;
+  font-size: 12px;
+  font-weight: 750;
+}
+
 .progress-rail {
+  display: flex;
   height: 12px;
   overflow: hidden;
   background: #dce3dc;
@@ -315,14 +363,27 @@ button {
 
 .progress-rail span {
   display: block;
+  flex: 0 0 auto;
+  min-width: 0;
   height: 100%;
-  background: linear-gradient(90deg, var(--green), var(--brick));
   transition: width 240ms ease;
+}
+
+.progress-failed {
+  background: var(--brick);
+}
+
+.progress-passed {
+  background: var(--green);
+}
+
+.progress-remaining {
+  background: #c8d1c7;
 }
 
 .bench-metrics {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 12px;
 }
 

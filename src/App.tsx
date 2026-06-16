@@ -8,10 +8,12 @@ import {
   Code2,
   FileText,
   KeyRound,
+  Bell,
   Play,
   Server,
   Settings2,
-  TerminalSquare
+  TerminalSquare,
+  Trash2
 } from "lucide-react";
 
 const BENCH_API = "http://localhost:8787";
@@ -102,6 +104,9 @@ type BenchRun = {
   logDir?: string;
   selectedIndices?: number[];
   config?: {
+    baseUrl?: string;
+    model?: string;
+    temperature?: number;
     systemPrompt?: string;
     promptTemplate?: string;
     testNumbers?: string;
@@ -132,15 +137,97 @@ function pct(value?: number | null) {
   return `${Math.round((value || 0) * 1000) / 10}%`;
 }
 
+function runTotal(run?: BenchRun | null) {
+  return run?.total || run?.selectedIndices?.length || 164;
+}
+
+function scoreRange(run?: BenchRun | null) {
+  if (!run) return { worst: 0, best: 0 };
+  const total = runTotal(run);
+  const remaining = Math.max(total - run.completed, 0);
+  return {
+    worst: total ? run.passed / total : 0,
+    best: total ? (run.passed + remaining) / total : 0
+  };
+}
+
+function progressSegments(run?: BenchRun | null) {
+  if (!run) return { failed: 0, passed: 0, remaining: 100 };
+  const total = runTotal(run);
+  const remaining = Math.max(total - run.completed, 0);
+  if (!total) return { failed: 0, passed: 0, remaining: 100 };
+  return {
+    failed: (run.failed / total) * 100,
+    passed: (run.passed / total) * 100,
+    remaining: (remaining / total) * 100
+  };
+}
+
 function formatMs(value?: number) {
   if (!value) return "n/a";
   if (value < 1000) return `${value}ms`;
   return `${(value / 1000).toFixed(value < 10_000 ? 1 : 0)}s`;
 }
 
+function formatDuration(valueMs: number) {
+  const totalSeconds = Math.max(0, Math.round(valueMs / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  if (hours) return `${hours}h ${minutes}m`;
+  if (minutes) return `${minutes}m ${seconds}s`;
+  return `${seconds}s`;
+}
+
 function formatTime(value?: string | null) {
   if (!value) return "n/a";
   return new Date(value).toLocaleString();
+}
+
+function formatClock(valueMs: number) {
+  const date = new Date(valueMs);
+  const time = date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  const zone = new Intl.DateTimeFormat(undefined, { timeZoneName: "short" })
+    .formatToParts(date)
+    .find((part) => part.type === "timeZoneName")?.value;
+  return zone ? `${time} ${zone}` : time;
+}
+
+function runStartedAtMs(run?: BenchRun | null) {
+  const value = run?.startedAt || run?.createdAt;
+  if (!value) return null;
+  const timestamp = new Date(value).getTime();
+  return Number.isFinite(timestamp) ? timestamp : null;
+}
+
+function currentTaskStartedAtMs(run: BenchRun | null, events: EventEnvelope[]) {
+  if (!run?.currentTaskId) return null;
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const event = events[index];
+    if (event.type !== "task-started") continue;
+    if (event.data.taskId !== run.currentTaskId) continue;
+    const timestamp = new Date(event.at).getTime();
+    return Number.isFinite(timestamp) ? timestamp : null;
+  }
+  return null;
+}
+
+function liveEstimate(run: BenchRun | null, events: EventEnvelope[], nowMs: number, taskStartedAtMs?: number | null) {
+  if (!run || !statusIsLive(run.status)) return null;
+  const total = runTotal(run);
+  const remainingTasks = Math.max(total - run.completed, 0);
+  const startedAtMs = runStartedAtMs(run);
+  if (!startedAtMs || run.completed <= 0 || remainingTasks <= 0) return null;
+  const elapsedMs = Math.max(nowMs - startedAtMs, 0);
+  const currentStartedAtMs = taskStartedAtMs ?? currentTaskStartedAtMs(run, events);
+  const currentTaskMs = currentStartedAtMs ? Math.max(nowMs - currentStartedAtMs, 0) : 0;
+  const completedTaskMs = Math.max(elapsedMs - currentTaskMs, 0);
+  const averageMs = completedTaskMs > 0 ? completedTaskMs / run.completed : elapsedMs / run.completed;
+  const remainingMs = Math.max(averageMs * remainingTasks - currentTaskMs, 0);
+  return {
+    remaining: formatDuration(remainingMs),
+    endTime: formatClock(nowMs + remainingMs)
+  };
 }
 
 function assertionStats(results: BenchResult[] = []) {
@@ -194,6 +281,17 @@ function mergeRunList(previous: BenchRun[], nextRuns: BenchRun[]) {
   return nextRuns.map((next) => mergeRun(previous.find((run) => run.id === next.id), next));
 }
 
+function updateRunInPlace(previous: BenchRun[], next: BenchRun) {
+  const index = previous.findIndex((run) => run.id === next.id);
+  if (index === -1) return [next, ...previous];
+  return previous.map((run, runIndex) => (runIndex === index ? mergeRun(run, next) : run));
+}
+
+function formatExtraBody(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return "{}";
+  return JSON.stringify(value, null, 2);
+}
+
 export default function App() {
   const [baseUrl, setBaseUrl] = useState("http://localhost:8000/v1");
   const [apiKey, setApiKey] = useState("");
@@ -212,12 +310,27 @@ export default function App() {
   const [events, setEvents] = useState<EventEnvelope[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  const [taskStartedAtByRun, setTaskStartedAtByRun] = useState<Record<string, number>>({});
+  const [notificationsEnabled, setNotificationsEnabled] = useState(() => {
+    if (typeof window === "undefined" || !("Notification" in window)) return false;
+    return window.localStorage.getItem("humaneval.notify") === "1" && Notification.permission === "granted";
+  });
   const sourcesRef = useRef<Map<string, EventSource>>(new Map());
+  const notifiedRunsRef = useRef<Set<string>>(new Set());
+  const notificationsEnabledRef = useRef(notificationsEnabled);
   const selectedRunIdRef = useRef<string | null>(null);
 
   const selectedRun = useMemo(
     () => runs.find((candidate) => candidate.id === selectedRunId) ?? runs[0] ?? null,
     [runs, selectedRunId]
+  );
+  const selectedScoreRange = useMemo(() => scoreRange(selectedRun), [selectedRun]);
+  const selectedProgressSegments = useMemo(() => progressSegments(selectedRun), [selectedRun]);
+  const selectedTaskStartedAtMs = selectedRun?.id ? taskStartedAtByRun[selectedRun.id] : null;
+  const selectedLiveEstimate = useMemo(
+    () => liveEstimate(selectedRun, events, nowMs, selectedTaskStartedAtMs),
+    [events, nowMs, selectedRun, selectedTaskStartedAtMs]
   );
 
   const currentOutput = useMemo(() => {
@@ -239,6 +352,44 @@ export default function App() {
   useEffect(() => {
     selectedRunIdRef.current = selectedRunId;
   }, [selectedRunId]);
+
+  useEffect(() => {
+    notificationsEnabledRef.current = notificationsEnabled;
+  }, [notificationsEnabled]);
+
+  useEffect(() => {
+    if (!statusIsLive(selectedRun?.status)) return undefined;
+    const timer = window.setInterval(() => setNowMs(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [selectedRun?.status]);
+
+  async function enableNotifications() {
+    if (!("Notification" in window)) {
+      setError("This browser does not support web notifications.");
+      return;
+    }
+    const permission = Notification.permission === "granted"
+      ? "granted"
+      : await Notification.requestPermission();
+    const enabled = permission === "granted";
+    setNotificationsEnabled(enabled);
+    window.localStorage.setItem("humaneval.notify", enabled ? "1" : "0");
+    if (!enabled) setError("Notifications were not enabled.");
+  }
+
+  function notifyRunFinished(run: BenchRun, eventType: string) {
+    if (!notificationsEnabledRef.current || !("Notification" in window) || Notification.permission !== "granted") return;
+    if (notifiedRunsRef.current.has(run.id)) return;
+    notifiedRunsRef.current.add(run.id);
+    const total = runTotal(run);
+    const title = eventType === "done" ? "HumanEval run finished" : "HumanEval run stopped";
+    const body = `${run.model || "model"} · ${run.passed}/${total} passed · ${run.status}`;
+    try {
+      new Notification(title, { body, tag: run.id });
+    } catch {
+      // Some browsers can still reject notifications after permission checks.
+    }
+  }
 
   async function loadRuns(selectLatest = false) {
     const response = await fetch(`${BENCH_API}/api/humaneval/runs`);
@@ -264,6 +415,20 @@ export default function App() {
     };
   }, []);
 
+  function loadRunConfig(run: BenchRun) {
+    const config = run.config ?? {};
+    setBaseUrl(config.baseUrl ?? run.baseUrl ?? "");
+    setModel(config.model ?? run.model ?? "");
+    setMaxTokens(Number(config.maxTokens ?? 2048));
+    setTimeoutSeconds(Number(config.timeoutSeconds ?? 15));
+    setSampleLimit(Number(config.sampleLimit ?? 0));
+    setStartIndex(Number(config.startIndex ?? 0));
+    setTestNumbers(String(config.testNumbers ?? ""));
+    setSystemPrompt(String(config.systemPrompt ?? DEFAULT_SYSTEM_PROMPT));
+    setPromptTemplate(String(config.promptTemplate ?? DEFAULT_PROMPT_TEMPLATE));
+    setExtraBody(formatExtraBody(config.extraBody));
+  }
+
   useEffect(() => {
     if (!selectedRunId) {
       setTokens([]);
@@ -274,10 +439,16 @@ export default function App() {
       .then(async (response) => {
         const json = await response.json();
         if (!response.ok) throw new Error(json.error || "Failed to load run");
-        setRuns((previous) => [mergeRun(previous.find((run) => run.id === json.id), json), ...previous.filter((run) => run.id !== json.id)]);
+        setRuns((previous) => updateRunInPlace(previous, json));
+        loadRunConfig(json);
         if (statusIsLive(json.status)) connectEvents(json.id);
-        const tokenEvents = (json.events as EventEnvelope[] | undefined)?.filter((event) => event.type === "token") ?? [];
-        setEvents((json.events as EventEnvelope[] | undefined)?.slice(-400) ?? []);
+        const runEvents = (json.events as EventEnvelope[] | undefined) ?? [];
+        const tokenEvents = runEvents.filter((event) => event.type === "token");
+        const latestTaskStartedAtMs = currentTaskStartedAtMs(json, runEvents);
+        if (latestTaskStartedAtMs) {
+          setTaskStartedAtByRun((previous) => ({ ...previous, [json.id]: latestTaskStartedAtMs }));
+        }
+        setEvents(runEvents.slice(-400));
         setTokens(tokenEvents.map((event) => event.data as unknown as TokenEvent).slice(-6000));
       })
       .catch((runError) => setError(runError instanceof Error ? runError.message : String(runError)));
@@ -306,10 +477,14 @@ export default function App() {
       });
       const json = await response.json();
       if (!response.ok) throw new Error(json.error || "Failed to start run");
-        setRuns((previous) => [mergeRun(previous.find((run) => run.id === json.id), json), ...previous.filter((run) => run.id !== json.id)]);
+      setRuns((previous) => updateRunInPlace(previous, json));
       setSelectedRunId(json.id);
       setTokens([]);
       setEvents([]);
+      setTaskStartedAtByRun((previous) => {
+        const { [json.id]: _ignored, ...rest } = previous;
+        return rest;
+      });
       connectEvents(json.id);
     } catch (startError) {
       setError(startError instanceof Error ? startError.message : String(startError));
@@ -324,12 +499,18 @@ export default function App() {
       const event = JSON.parse(message.data) as EventEnvelope;
       const maybeSummary = event.data.summary as BenchRun | undefined;
       if (maybeSummary) {
-        setRuns((previous) => [mergeRun(previous.find((run) => run.id === maybeSummary.id), maybeSummary), ...previous.filter((run) => run.id !== maybeSummary.id)]);
+        setRuns((previous) => updateRunInPlace(previous, maybeSummary));
       }
       const currentSelectedRunId = selectedRunIdRef.current;
       if (runId === currentSelectedRunId || (!currentSelectedRunId && maybeSummary?.id === runId)) {
         setEvents((prev) => [...prev.slice(-400), event]);
-        if (event.type === "task-started") setTokens([]);
+        if (event.type === "task-started") {
+          setTokens([]);
+          const timestamp = new Date(event.at).getTime();
+          if (Number.isFinite(timestamp)) {
+            setTaskStartedAtByRun((previous) => ({ ...previous, [runId]: timestamp }));
+          }
+        }
         if (event.type === "token") {
           const data = event.data as unknown as TokenEvent;
           setTokens((prev) => [...prev.slice(-6000), data]);
@@ -339,13 +520,14 @@ export default function App() {
             .then(async (response) => {
               const json = await response.json();
               if (response.ok) {
-                setRuns((previous) => [mergeRun(previous.find((run) => run.id === json.id), json), ...previous.filter((run) => run.id !== json.id)]);
+                setRuns((previous) => updateRunInPlace(previous, json));
               }
             })
             .catch(() => undefined);
         }
       }
       if (event.type === "done" || event.type === "error") {
+        if (maybeSummary) notifyRunFinished(maybeSummary, event.type);
         source.close();
         sourcesRef.current.delete(runId);
         loadRuns().catch(() => undefined);
@@ -364,6 +546,27 @@ export default function App() {
     if (!selectedRun || !statusIsLive(selectedRun.status)) return;
     await fetch(`${BENCH_API}/api/humaneval/runs/${selectedRun.id}/cancel`, { method: "POST" });
     await loadRuns();
+  }
+
+  async function deleteRun(run: BenchRun) {
+    const label = `${run.model || "model"} · ${formatTime(run.createdAt)}`;
+    if (!window.confirm(`Delete benchmark run?\n\n${label}\n\nThis removes its saved artifacts from disk.`)) return;
+    setError(null);
+    try {
+      const response = await fetch(`${BENCH_API}/api/humaneval/runs/${run.id}`, { method: "DELETE" });
+      const json = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(json.error || "Failed to delete run");
+      sourcesRef.current.get(run.id)?.close();
+      sourcesRef.current.delete(run.id);
+      if (selectedRunIdRef.current === run.id) {
+        setSelectedRunId(null);
+        setTokens([]);
+        setEvents([]);
+      }
+      await loadRuns();
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : String(deleteError));
+    }
   }
 
   async function copyNumbers(passed: boolean) {
@@ -448,6 +651,14 @@ export default function App() {
             <CircleStop size={17} /> Stop selected
           </button>
         </div>
+        <button
+          className="secondary-action notify-action"
+          type="button"
+          onClick={enableNotifications}
+          disabled={typeof window !== "undefined" && !("Notification" in window)}
+        >
+          <Bell size={16} /> {notificationsEnabled ? "Notifications on" : "Notify on finish"}
+        </button>
         {error ? <p className="bench-error">{error}</p> : null}
       </aside>
 
@@ -456,16 +667,25 @@ export default function App() {
           <div className="pane-head">Benchmarks</div>
           <div className="run-list">
             {runs.length ? runs.map((candidate) => (
-              <button
+              <div
                 className={candidate.id === selectedRun?.id ? "run-tab active" : "run-tab"}
                 key={candidate.id}
-                type="button"
-                onClick={() => setSelectedRunId(candidate.id)}
               >
-                <span className={`status-dot ${statusIsLive(candidate.status) ? "live" : ""}`} />
-                <strong>{candidate.model || "model"}</strong>
-                <small>{candidate.status} · {candidate.completed}/{candidate.total || candidate.selectedIndices?.length || 164} · {formatTime(candidate.createdAt)}</small>
-              </button>
+                <button className="run-tab-main" type="button" onClick={() => setSelectedRunId(candidate.id)}>
+                  <span className={`status-dot ${statusIsLive(candidate.status) ? "live" : ""}`} />
+                  <strong>{candidate.model || "model"}</strong>
+                  <small>{candidate.status} · {candidate.completed}/{candidate.total || candidate.selectedIndices?.length || 164} · {formatTime(candidate.createdAt)}</small>
+                </button>
+                <button
+                  aria-label={`Delete benchmark run ${candidate.model || candidate.id}`}
+                  className="run-delete"
+                  title="Delete benchmark run"
+                  type="button"
+                  onClick={() => deleteRun(candidate)}
+                >
+                  <Trash2 size={15} />
+                </button>
+              </div>
             )) : <p className="empty-copy">No benchmark runs recorded yet.</p>}
           </div>
         </section>
@@ -478,10 +698,20 @@ export default function App() {
           <div className="bench-score">
             <strong>{selectedRun ? pct(selectedRun.liveScore) : "0%"}</strong>
             <span>{selectedRun ? `${selectedRun.passed}/${selectedRun.completed || 0} passing live` : "pass@1 live score"}</span>
+            <small>{selectedRun ? `est. range ${pct(selectedScoreRange.worst)}-${pct(selectedScoreRange.best)}` : "est. range 0%-100%"}</small>
           </div>
         </header>
-        <div className="progress-rail">
-          <span style={{ width: `${selectedRun?.total ? (selectedRun.completed / selectedRun.total) * 100 : 0}%` }} />
+        <div
+          className="progress-rail"
+          aria-label={
+            selectedRun
+              ? `${selectedRun.failed} failed, ${selectedRun.passed} passed, ${Math.max(runTotal(selectedRun) - selectedRun.completed, 0)} remaining`
+              : "No run progress"
+          }
+        >
+          <span className="progress-failed" style={{ width: `${selectedProgressSegments.failed}%` }} />
+          <span className="progress-passed" style={{ width: `${selectedProgressSegments.passed}%` }} />
+          <span className="progress-remaining" style={{ width: `${selectedProgressSegments.remaining}%` }} />
         </div>
         <section className="bench-metrics">
           <Metric label="Completed" value={selectedRun ? `${selectedRun.completed}/${selectedRun.total || 164}` : "0/164"} />
@@ -495,6 +725,12 @@ export default function App() {
                 : "0/0 (0%)"
             }
           />
+          {statusIsLive(selectedRun?.status) ? (
+            <Metric
+              label="ETA"
+              value={selectedLiveEstimate ? `~${selectedLiveEstimate.remaining} · ${selectedLiveEstimate.endTime}` : "Estimating..."}
+            />
+          ) : null}
           <Metric label="Current" value={selectedRun?.currentTaskId ?? "n/a"} />
         </section>
 
