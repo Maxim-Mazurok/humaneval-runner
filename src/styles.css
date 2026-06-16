@@ -411,11 +411,10 @@ button {
 
 .live-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.6fr) minmax(240px, 0.7fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 14px;
 }
 
-.live-stream,
 .event-log,
 .results-panel {
   min-width: 0;
@@ -437,16 +436,6 @@ button {
   text-transform: uppercase;
 }
 
-.live-stream {
-  max-height: 430px;
-  overflow: auto;
-}
-
-.live-stream details {
-  border-bottom: 1px solid var(--line);
-}
-
-.live-stream summary,
 .result-detail summary {
   padding: 10px 14px;
   cursor: pointer;
@@ -529,8 +518,9 @@ pre {
 }
 
 .pass-pill,
-.fail-pill {
-  min-width: 48px;
+.fail-pill,
+.running-pill {
+  min-width: 68px;
   padding: 4px 8px;
   border-radius: 999px;
   font-size: 11px;
@@ -547,6 +537,19 @@ pre {
 .fail-pill {
   color: #8a2d18;
   background: #ffe2d7;
+}
+
+.running-pill {
+  color: #24548a;
+  background: #dfeeff;
+}
+
+.result-row.in-progress {
+  background: #f7fbff;
+}
+
+.result-row.in-progress > button {
+  box-shadow: inset 3px 0 0 var(--blue);
 }
 
 .result-detail {

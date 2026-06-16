@@ -122,9 +122,11 @@ function runSummary(run, { includeResults = true } = {}) {
     assertionsTotal,
     assertionScore: assertionsTotal ? assertionsPassed / assertionsTotal : 0,
     currentTaskId: run.currentTaskId,
+    activeTaskIds: run.activeTaskIds || [],
     config: {
       baseUrl: run.baseUrl,
       model: run.model,
+      parallelTasks: run.parallelTasks || 1,
       ...(run.publicConfig || {})
     },
     logDir: run.dir,
@@ -263,6 +265,8 @@ function buildPromptMessages(problem, systemPrompt = defaultSystemPrompt, prompt
 
 async function callModel(run, problem, index) {
   const controller = new AbortController();
+  run.abortControllers ??= new Set();
+  run.abortControllers.add(controller);
   run.abortController = controller;
   const messages = buildPromptMessages(problem, run.systemPrompt, run.promptTemplate);
   const body = {
@@ -277,66 +281,71 @@ async function callModel(run, problem, index) {
 
   appendEvent(run, "prompt", { taskId: problem.task_id, index, messages, request: { ...body, messages } });
   const started = Date.now();
-  const response = await fetch(`${run.baseUrl}/chat/completions`, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      ...(run.apiKey ? { authorization: `Bearer ${run.apiKey}` } : {})
-    },
-    body: JSON.stringify(body),
-    signal: controller.signal
-  });
-  if (!response.ok || !response.body) {
-    const text = await response.text().catch(() => "");
-    throw new Error(`Model request failed: HTTP ${response.status} ${text.slice(0, 1000)}`);
-  }
+  try {
+    const response = await fetch(`${run.baseUrl}/chat/completions`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        ...(run.apiKey ? { authorization: `Bearer ${run.apiKey}` } : {})
+      },
+      body: JSON.stringify(body),
+      signal: controller.signal
+    });
+    if (!response.ok || !response.body) {
+      const text = await response.text().catch(() => "");
+      throw new Error(`Model request failed: HTTP ${response.status} ${text.slice(0, 1000)}`);
+    }
 
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  let output = "";
-  let thinking = "";
-  let transcript = "";
-  let raw = "";
-  let usage = null;
-  let finishReason = null;
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const frames = buffer.split("\n\n");
-    buffer = frames.pop() ?? "";
-    for (const frame of frames) {
-      for (const line of frame.split("\n")) {
-        if (!line.startsWith("data:")) continue;
-        const payload = line.slice(5).trim();
-        if (!payload || payload === "[DONE]") continue;
-        raw += `${payload}\n`;
-        let parsed;
-        try {
-          parsed = JSON.parse(payload);
-        } catch {
-          appendEvent(run, "raw", { taskId: problem.task_id, text: payload });
-          continue;
-        }
-        if (parsed.usage) usage = parsed.usage;
-        const choice = parsed.choices?.[0];
-        if (choice?.finish_reason) finishReason = choice.finish_reason;
-        const delta = choice?.delta ?? {};
-        const parts = extractTextFromDelta(delta);
-        for (const part of parts) {
-          transcript += part.text;
-          if (part.channel === "output") output += part.text;
-          if (part.channel === "thinking") thinking += part.text;
-          appendEvent(run, "token", { taskId: problem.task_id, index, ...part });
-        }
-        if (!parts.length && Object.keys(delta).length) {
-          appendEvent(run, "raw-delta", { taskId: problem.task_id, index, delta });
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let output = "";
+    let thinking = "";
+    let transcript = "";
+    let raw = "";
+    let usage = null;
+    let finishReason = null;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const frames = buffer.split("\n\n");
+      buffer = frames.pop() ?? "";
+      for (const frame of frames) {
+        for (const line of frame.split("\n")) {
+          if (!line.startsWith("data:")) continue;
+          const payload = line.slice(5).trim();
+          if (!payload || payload === "[DONE]") continue;
+          raw += `${payload}\n`;
+          let parsed;
+          try {
+            parsed = JSON.parse(payload);
+          } catch {
+            appendEvent(run, "raw", { taskId: problem.task_id, text: payload });
+            continue;
+          }
+          if (parsed.usage) usage = parsed.usage;
+          const choice = parsed.choices?.[0];
+          if (choice?.finish_reason) finishReason = choice.finish_reason;
+          const delta = choice?.delta ?? {};
+          const parts = extractTextFromDelta(delta);
+          for (const part of parts) {
+            transcript += part.text;
+            if (part.channel === "output") output += part.text;
+            if (part.channel === "thinking") thinking += part.text;
+            appendEvent(run, "token", { taskId: problem.task_id, index, ...part });
+          }
+          if (!parts.length && Object.keys(delta).length) {
+            appendEvent(run, "raw-delta", { taskId: problem.task_id, index, delta });
+          }
         }
       }
     }
+    return { output, thinking, transcript, raw, usage, finishReason, elapsedMs: Date.now() - started };
+  } finally {
+    run.abortControllers?.delete(controller);
+    if (run.abortController === controller) run.abortController = null;
   }
-  return { output, thinking, transcript, raw, usage, finishReason, elapsedMs: Date.now() - started };
 }
 
 function extractCode(response, prompt) {
@@ -553,73 +562,19 @@ async function runHumanEval(run) {
     run.selectedIndices = selectedIndices;
     const problems = selectedIndices.map((index) => allProblems[index]);
     run.total = problems.length;
+    run.activeTaskIds = [];
     appendEvent(run, "run-started", { summary: runSummary(run, { includeResults: false }), datasetSize: allProblems.length });
-    for (let i = 0; i < problems.length; i += 1) {
-      if (run.cancelled) throw new Error("Run cancelled.");
-      const problem = problems[i];
-      const index = selectedIndices[i];
-      run.currentTaskId = problem.task_id;
-      appendEvent(run, "task-started", {
-        taskId: problem.task_id,
-        index,
-        ordinal: i + 1,
-        total: problems.length,
-        entryPoint: problem.entry_point,
-        prompt: problem.prompt,
-        test: problem.test
-      });
-      let generation;
-      try {
-        generation = await callModel(run, problem, index);
-      } catch (error) {
-        const result = {
-          taskId: problem.task_id,
-          index,
-          entryPoint: problem.entry_point,
-          passed: false,
-          modelError: error instanceof Error ? error.message : String(error),
-          tests: [],
-          instructionPrompt: buildPromptMessages(problem, run.systemPrompt, run.promptTemplate).map((message) => `${message.role.toUpperCase()}:\n${message.content}`).join("\n\n"),
-          prompt: problem.prompt,
-          test: problem.test,
-          rawOutput: "",
-          extractedCode: ""
-        };
-        run.results.push(result);
-        await appendTaskLogs(run, result);
-        run.completed += 1;
-        run.failed += 1;
-        appendEvent(run, "task-finished", { result: compactResult(result), summary: runSummary(run, { includeResults: false }) });
-        continue;
-      }
-      const extractedCode = extractCode(generation.output, problem.prompt);
-      appendEvent(run, "code-extracted", { taskId: problem.task_id, index, code: extractedCode });
-      const testResult = await executeTests(problem, extractedCode, run.timeoutSeconds);
-      const result = {
-        taskId: problem.task_id,
-        index,
-        entryPoint: problem.entry_point,
-        passed: Boolean(testResult.passed),
-        tests: testResult.tests || [],
-        stdout: testResult.stdout || "",
-        stderr: testResult.stderr || "",
-        harnessStdout: testResult.harnessStdout || "",
-        harnessStderr: testResult.harnessStderr || "",
-        error: testResult.error || null,
-        traceback: testResult.traceback || null,
-        timeout: Boolean(testResult.timeout),
-        instructionPrompt: buildPromptMessages(problem, run.systemPrompt, run.promptTemplate).map((message) => `${message.role.toUpperCase()}:\n${message.content}`).join("\n\n"),
-        prompt: problem.prompt,
-        test: problem.test,
-        rawOutput: generation.output,
-        thinkingOutput: generation.thinking,
-        rawTranscript: generation.transcript,
-        rawSse: generation.raw,
-        extractedCode,
-        usage: generation.usage,
-        finishReason: generation.finishReason,
-        generationMs: generation.elapsedMs
-      };
+    const tasks = problems.map((problem, i) => ({
+      problem,
+      index: selectedIndices[i],
+      ordinal: i + 1
+    }));
+    let nextTask = 0;
+    const workerCount = Math.min(run.parallelTasks || 1, tasks.length || 1);
+
+    async function finishTask(result) {
+      run.activeTaskIds = (run.activeTaskIds || []).filter((taskId) => taskId !== result.taskId);
+      run.currentTaskId = run.activeTaskIds[run.activeTaskIds.length - 1] || null;
       run.results.push(result);
       await appendTaskLogs(run, result);
       run.completed += 1;
@@ -627,13 +582,99 @@ async function runHumanEval(run) {
       else run.failed += 1;
       appendEvent(run, "task-finished", { result: compactResult(result), summary: runSummary(run, { includeResults: false }) });
     }
+
+    async function runTask({ problem, index, ordinal }) {
+      if (run.cancelled) throw new Error("Run cancelled.");
+      run.activeTaskIds = [...new Set([...(run.activeTaskIds || []), problem.task_id])];
+      run.currentTaskId = problem.task_id;
+      appendEvent(run, "task-started", {
+        taskId: problem.task_id,
+        index,
+        ordinal,
+        total: problems.length,
+        entryPoint: problem.entry_point,
+        prompt: problem.prompt,
+        test: problem.test,
+        summary: runSummary(run, { includeResults: false })
+      });
+      try {
+        let generation;
+        try {
+          generation = await callModel(run, problem, index);
+        } catch (error) {
+          const result = {
+            taskId: problem.task_id,
+            index,
+            entryPoint: problem.entry_point,
+            passed: false,
+            modelError: error instanceof Error ? error.message : String(error),
+            tests: [],
+            instructionPrompt: buildPromptMessages(problem, run.systemPrompt, run.promptTemplate).map((message) => `${message.role.toUpperCase()}:\n${message.content}`).join("\n\n"),
+            prompt: problem.prompt,
+            test: problem.test,
+            rawOutput: "",
+            extractedCode: ""
+          };
+          await finishTask(result);
+          return;
+        }
+        const extractedCode = extractCode(generation.output, problem.prompt);
+        appendEvent(run, "code-extracted", { taskId: problem.task_id, index, code: extractedCode });
+        const testResult = await executeTests(problem, extractedCode, run.timeoutSeconds);
+        const result = {
+          taskId: problem.task_id,
+          index,
+          entryPoint: problem.entry_point,
+          passed: Boolean(testResult.passed),
+          tests: testResult.tests || [],
+          stdout: testResult.stdout || "",
+          stderr: testResult.stderr || "",
+          harnessStdout: testResult.harnessStdout || "",
+          harnessStderr: testResult.harnessStderr || "",
+          error: testResult.error || null,
+          traceback: testResult.traceback || null,
+          timeout: Boolean(testResult.timeout),
+          instructionPrompt: buildPromptMessages(problem, run.systemPrompt, run.promptTemplate).map((message) => `${message.role.toUpperCase()}:\n${message.content}`).join("\n\n"),
+          prompt: problem.prompt,
+          test: problem.test,
+          rawOutput: generation.output,
+          thinkingOutput: generation.thinking,
+          rawTranscript: generation.transcript,
+          rawSse: generation.raw,
+          extractedCode,
+          usage: generation.usage,
+          finishReason: generation.finishReason,
+          generationMs: generation.elapsedMs
+        };
+        await finishTask(result);
+      } finally {
+        run.activeTaskIds = (run.activeTaskIds || []).filter((taskId) => taskId !== problem.task_id);
+        run.currentTaskId = run.activeTaskIds[run.activeTaskIds.length - 1] || null;
+      }
+    }
+
+    async function runWorker() {
+      while (true) {
+        if (run.cancelled) throw new Error("Run cancelled.");
+        const taskIndex = nextTask;
+        nextTask += 1;
+        if (taskIndex >= tasks.length) return;
+        await runTask(tasks[taskIndex]);
+      }
+    }
+
+    await Promise.all(Array.from({ length: workerCount }, () => runWorker()));
     run.status = "completed";
     run.finishedAt = new Date().toISOString();
+    run.activeTaskIds = [];
+    run.currentTaskId = null;
     appendEvent(run, "done", { summary: runSummary(run, { includeResults: false }) });
     persistRunArtifacts(run);
   } catch (error) {
     run.status = run.cancelled ? "cancelled" : "error";
     run.finishedAt = new Date().toISOString();
+    run.activeTaskIds = [];
+    run.currentTaskId = null;
     appendEvent(run, "error", { message: error instanceof Error ? error.message : String(error), summary: runSummary(run, { includeResults: false }) });
     persistRunArtifacts(run);
   }
@@ -670,10 +711,17 @@ function parseTestNumbers(value, datasetSize) {
   return [...selected].sort((a, b) => a - b);
 }
 
+function normalizeParallelTasks(value) {
+  const parsed = Number(value ?? 1);
+  if (!Number.isFinite(parsed)) return 1;
+  return Math.min(64, Math.max(1, Math.floor(parsed)));
+}
+
 async function createRun(config) {
   const baseUrl = normalizeBaseUrl(config.baseUrl);
   const allProblems = await ensureHumanEvalData();
   const selectedIndices = parseTestNumbers(config.testNumbers, allProblems.length);
+  const parallelTasks = normalizeParallelTasks(config.parallelTasks);
   const id = `he-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
   const createdAt = new Date().toISOString();
   const run = {
@@ -689,6 +737,7 @@ async function createRun(config) {
     temperature: Number(config.temperature ?? 0),
     maxTokens: Number(config.maxTokens ?? 2048),
     timeoutSeconds: Number(config.timeoutSeconds ?? 15),
+    parallelTasks,
     sampleLimit: Number(config.sampleLimit ?? 0),
     startIndex: Number(config.startIndex ?? 0),
     selectedIndices,
@@ -701,6 +750,7 @@ async function createRun(config) {
       temperature: Number(config.temperature ?? 0),
       maxTokens: Number(config.maxTokens ?? 2048),
       timeoutSeconds: Number(config.timeoutSeconds ?? 15),
+      parallelTasks,
       sampleLimit: Number(config.sampleLimit ?? 0),
       startIndex: Number(config.startIndex ?? 0),
       testNumbers: String(config.testNumbers || ""),
@@ -713,12 +763,14 @@ async function createRun(config) {
     passed: 0,
     failed: 0,
     currentTaskId: null,
+    activeTaskIds: [],
     results: [],
     events: [],
     eventSeq: 0,
     clients: new Set(),
     cancelled: false,
-    abortController: null
+    abortController: null,
+    abortControllers: new Set()
   };
   if (!run.model) throw new Error("Model name is required.");
   runs.set(id, run);
@@ -741,12 +793,15 @@ async function loadPersistedRuns() {
         ...persisted,
         dir,
         publicConfig: persisted.config || persisted.publicConfig || {},
+        parallelTasks: normalizeParallelTasks(persisted.config?.parallelTasks ?? persisted.publicConfig?.parallelTasks ?? persisted.parallelTasks),
+        activeTaskIds: [],
         events: [],
         eventSeq: 0,
         results: Array.isArray(results) ? results : [],
         clients: new Set(),
         cancelled: persisted.status === "cancelled",
-        abortController: null
+        abortController: null,
+        abortControllers: new Set()
       };
       if (run.status === "running" || run.status === "queued") {
         run.status = "interrupted";
@@ -785,6 +840,7 @@ const server = createServer(async (req, res) => {
       if (req.method === "DELETE" && !runMatch[2]) {
         run.deleted = true;
         run.cancelled = true;
+        for (const controller of run.abortControllers || []) controller.abort();
         run.abortController?.abort();
         for (const client of run.clients) client.end();
         run.clients.clear();
@@ -796,6 +852,7 @@ const server = createServer(async (req, res) => {
       if (req.method === "GET" && !runMatch[2]) return sendJson(res, 200, { ...runSummary(run), events: run.events });
       if (req.method === "POST" && runMatch[2] === "cancel") {
         run.cancelled = true;
+        for (const controller of run.abortControllers || []) controller.abort();
         run.abortController?.abort();
         return sendJson(res, 200, runSummary(run, { includeResults: false }));
       }

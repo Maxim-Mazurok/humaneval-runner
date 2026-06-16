@@ -15,6 +15,7 @@ live pass/fail results stream in as each task completes.
 - OpenAI-compatible streaming chat completions support.
 - Editable system prompt and HumanEval prompt template.
 - Full HumanEval runs or targeted task lists such as `0, 1, 2` or `10-25`.
+- Configurable task parallelism, defaulting to one task at a time.
 - Live pass@1 score, completed/passed/failed counts, and assertion-level stats.
 - Per-task views for prompt, original task, model output, extracted code,
   captured reasoning/thinking stream, tests, traceback, and assertion ledger.
@@ -74,6 +75,10 @@ HumanEval/0 HumanEval/42
 
 The prompt template must include `%problem_code%`; that marker is replaced with
 the HumanEval function stub for each task.
+
+Set `Parallel` to the number of HumanEval tasks to solve at once. The default is
+`1`, which preserves sequential execution. Higher values send multiple model
+requests concurrently and can make runs faster if your endpoint supports it.
 
 The `Extra request body` field accepts a JSON object and is merged into the
 chat completion request. For example:

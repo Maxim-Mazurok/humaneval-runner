@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  Activity,
   ChevronDown,
   ChevronRight,
   CircleStop,
@@ -112,10 +111,12 @@ type BenchRun = {
     testNumbers?: string;
     maxTokens?: number;
     timeoutSeconds?: number;
+    parallelTasks?: number;
     sampleLimit?: number;
     startIndex?: number;
     extraBody?: Record<string, unknown>;
   };
+  activeTaskIds?: string[];
   results: BenchResult[];
 };
 
@@ -131,6 +132,19 @@ type EventEnvelope = {
   type: string;
   at: string;
   data: Record<string, unknown>;
+};
+
+type StartedTask = {
+  taskId: string;
+  index: number;
+  entryPoint: string;
+  prompt?: string;
+  test?: string;
+};
+
+type TaskRow = StartedTask & {
+  status: "running" | "pass" | "fail";
+  result?: BenchResult;
 };
 
 function pct(value?: number | null) {
@@ -218,7 +232,16 @@ function liveEstimate(run: BenchRun | null, events: EventEnvelope[], nowMs: numb
   const remainingTasks = Math.max(total - run.completed, 0);
   const startedAtMs = runStartedAtMs(run);
   if (!startedAtMs || run.completed <= 0 || remainingTasks <= 0) return null;
+  const parallelTasks = Math.max(1, Math.floor(Number(run.config?.parallelTasks ?? 1)));
   const elapsedMs = Math.max(nowMs - startedAtMs, 0);
+  if (parallelTasks > 1) {
+    const averageMs = elapsedMs / run.completed;
+    const remainingMs = Math.max((averageMs * remainingTasks) / parallelTasks, 0);
+    return {
+      remaining: formatDuration(remainingMs),
+      endTime: formatClock(nowMs + remainingMs)
+    };
+  }
   const currentStartedAtMs = taskStartedAtMs ?? currentTaskStartedAtMs(run, events);
   const currentTaskMs = currentStartedAtMs ? Math.max(nowMs - currentStartedAtMs, 0) : 0;
   const completedTaskMs = Math.max(elapsedMs - currentTaskMs, 0);
@@ -292,12 +315,34 @@ function formatExtraBody(value: unknown) {
   return JSON.stringify(value, null, 2);
 }
 
+function normalizeParallelTasks(value: number) {
+  if (!Number.isFinite(value)) return 1;
+  return Math.min(64, Math.max(1, Math.floor(value)));
+}
+
+function orderedChannelOutput(taskTokens: TokenEvent[] = []) {
+  const grouped = new Map<string, string>();
+  for (const token of taskTokens) {
+    grouped.set(token.channel, `${grouped.get(token.channel) || ""}${token.text}`);
+  }
+  const channelOrder = ["thinking", "output", "refusal"];
+  return [...grouped.entries()].sort(([left], [right]) => {
+    const leftIndex = channelOrder.indexOf(left);
+    const rightIndex = channelOrder.indexOf(right);
+    const leftRank = leftIndex === -1 ? Number.MAX_SAFE_INTEGER : leftIndex;
+    const rightRank = rightIndex === -1 ? Number.MAX_SAFE_INTEGER : rightIndex;
+    if (leftRank !== rightRank) return leftRank - rightRank;
+    return left.localeCompare(right);
+  });
+}
+
 export default function App() {
   const [baseUrl, setBaseUrl] = useState("http://localhost:8000/v1");
   const [apiKey, setApiKey] = useState("");
   const [model, setModel] = useState("");
   const [maxTokens, setMaxTokens] = useState(2048);
   const [timeoutSeconds, setTimeoutSeconds] = useState(15);
+  const [parallelTasks, setParallelTasks] = useState(1);
   const [sampleLimit, setSampleLimit] = useState(0);
   const [startIndex, setStartIndex] = useState(0);
   const [testNumbers, setTestNumbers] = useState("");
@@ -333,21 +378,55 @@ export default function App() {
     [events, nowMs, selectedRun, selectedTaskStartedAtMs]
   );
 
-  const currentOutput = useMemo(() => {
-    const grouped = new Map<string, string>();
+  const tokensByTask = useMemo(() => {
+    const grouped = new Map<string, TokenEvent[]>();
     for (const token of tokens) {
-      grouped.set(token.channel, `${grouped.get(token.channel) || ""}${token.text}`);
+      grouped.set(token.taskId, [...(grouped.get(token.taskId) || []), token]);
     }
-    const channelOrder = ["thinking", "output", "refusal"];
-    return [...grouped.entries()].sort(([left], [right]) => {
-      const leftIndex = channelOrder.indexOf(left);
-      const rightIndex = channelOrder.indexOf(right);
-      const leftRank = leftIndex === -1 ? Number.MAX_SAFE_INTEGER : leftIndex;
-      const rightRank = rightIndex === -1 ? Number.MAX_SAFE_INTEGER : rightIndex;
-      if (leftRank !== rightRank) return leftRank - rightRank;
-      return left.localeCompare(right);
-    });
+    return grouped;
   }, [tokens]);
+
+  const taskRows = useMemo(() => {
+    const rows = new Map<string, TaskRow>();
+    for (const event of events) {
+      if (event.type !== "task-started") continue;
+      const taskId = String(event.data.taskId || "");
+      const index = Number(event.data.index);
+      if (!taskId || !Number.isFinite(index)) continue;
+      rows.set(taskId, {
+        taskId,
+        index,
+        entryPoint: String(event.data.entryPoint || ""),
+        prompt: typeof event.data.prompt === "string" ? event.data.prompt : undefined,
+        test: typeof event.data.test === "string" ? event.data.test : undefined,
+        status: "running"
+      });
+    }
+    for (const taskId of selectedRun?.activeTaskIds ?? []) {
+      if (rows.has(taskId)) continue;
+      const tokenIndex = tokensByTask.get(taskId)?.find((token) => Number.isFinite(token.index))?.index;
+      const parsedIndex = Number(taskId.match(/HumanEval\/(\d+)$/)?.[1]);
+      const fallbackIndex = Number.isFinite(parsedIndex) ? parsedIndex : Number.MAX_SAFE_INTEGER;
+      rows.set(taskId, {
+        taskId,
+        index: Number.isFinite(tokenIndex) ? Number(tokenIndex) : fallbackIndex,
+        entryPoint: "",
+        status: "running"
+      });
+    }
+    for (const result of selectedRun?.results ?? []) {
+      rows.set(result.taskId, {
+        taskId: result.taskId,
+        index: result.index,
+        entryPoint: result.entryPoint,
+        prompt: result.prompt,
+        test: result.test,
+        status: result.passed ? "pass" : "fail",
+        result
+      });
+    }
+    return [...rows.values()].sort((left, right) => left.index - right.index);
+  }, [events, selectedRun, tokensByTask]);
 
   useEffect(() => {
     selectedRunIdRef.current = selectedRunId;
@@ -421,6 +500,7 @@ export default function App() {
     setModel(config.model ?? run.model ?? "");
     setMaxTokens(Number(config.maxTokens ?? 2048));
     setTimeoutSeconds(Number(config.timeoutSeconds ?? 15));
+    setParallelTasks(normalizeParallelTasks(Number(config.parallelTasks ?? 1)));
     setSampleLimit(Number(config.sampleLimit ?? 0));
     setStartIndex(Number(config.startIndex ?? 0));
     setTestNumbers(String(config.testNumbers ?? ""));
@@ -466,6 +546,7 @@ export default function App() {
           model,
           maxTokens,
           timeoutSeconds,
+          parallelTasks: normalizeParallelTasks(parallelTasks),
           sampleLimit,
           startIndex,
           testNumbers,
@@ -505,7 +586,6 @@ export default function App() {
       if (runId === currentSelectedRunId || (!currentSelectedRunId && maybeSummary?.id === runId)) {
         setEvents((prev) => [...prev.slice(-400), event]);
         if (event.type === "task-started") {
-          setTokens([]);
           const timestamp = new Date(event.at).getTime();
           if (Number.isFinite(timestamp)) {
             setTaskStartedAtByRun((previous) => ({ ...previous, [runId]: timestamp }));
@@ -604,6 +684,10 @@ export default function App() {
           <label className="field">
             <span>Timeout</span>
             <input value={timeoutSeconds} min={1} type="number" onChange={(event) => setTimeoutSeconds(Number(event.target.value))} />
+          </label>
+          <label className="field">
+            <span>Parallel</span>
+            <input value={parallelTasks} min={1} max={64} type="number" onChange={(event) => setParallelTasks(normalizeParallelTasks(Number(event.target.value)))} />
           </label>
           <label className="field">
             <span>Start</span>
@@ -717,6 +801,7 @@ export default function App() {
           <Metric label="Completed" value={selectedRun ? `${selectedRun.completed}/${selectedRun.total || 164}` : "0/164"} />
           <Metric label="Passed" value={String(selectedRun?.passed ?? 0)} />
           <Metric label="Failed" value={String(selectedRun?.failed ?? 0)} />
+          <Metric label="Parallel" value={String(selectedRun?.config?.parallelTasks ?? 1)} />
           <Metric
             label="Assertions"
             value={
@@ -731,7 +816,14 @@ export default function App() {
               value={selectedLiveEstimate ? `~${selectedLiveEstimate.remaining} · ${selectedLiveEstimate.endTime}` : "Estimating..."}
             />
           ) : null}
-          <Metric label="Current" value={selectedRun?.currentTaskId ?? "n/a"} />
+          <Metric
+            label="Active"
+            value={
+              selectedRun?.activeTaskIds?.length
+                ? `${selectedRun.activeTaskIds.length}: ${selectedRun.activeTaskIds.join(", ")}`
+                : selectedRun?.currentTaskId ?? "n/a"
+            }
+          />
         </section>
 
         <section className="copy-panel">
@@ -745,15 +837,6 @@ export default function App() {
         </section>
 
         <section className="live-grid">
-          <article className="live-stream">
-            <div className="pane-head"><Activity size={16} /> Raw stream</div>
-            {currentOutput.length ? currentOutput.map(([channel, text]) => (
-              <details key={channel} open>
-                <summary>{channel}</summary>
-                <pre>{text}</pre>
-              </details>
-            )) : <p className="empty-copy">Streaming tokens will appear here for the selected run.</p>}
-          </article>
           <article className="event-log">
             <div className="pane-head"><Code2 size={16} /> Event log</div>
             <div className="event-list">
@@ -768,35 +851,49 @@ export default function App() {
         </section>
 
         <section className="results-panel">
-          <div className="pane-head">Task results</div>
-          {(selectedRun?.results ?? []).map((result) => {
-            const isOpen = expanded[result.taskId] ?? false;
-            const assertsPassed = result.tests.filter((test) => test.passed).length;
-            const assertScore = result.tests.length ? assertsPassed / result.tests.length : 0;
+          <div className="pane-head">Tasks</div>
+          {taskRows.length ? taskRows.map((row) => {
+            const result = row.result;
+            const liveOutput = orderedChannelOutput(tokensByTask.get(row.taskId));
+            const isRunning = row.status === "running";
+            const isOpen = expanded[row.taskId] ?? isRunning;
+            const assertsPassed = result?.tests.filter((test) => test.passed).length ?? 0;
+            const assertScore = result?.tests.length ? assertsPassed / result.tests.length : 0;
             return (
-              <article className="result-row" key={result.taskId}>
-                <button type="button" onClick={() => setExpanded((prev) => ({ ...prev, [result.taskId]: !isOpen }))}>
+              <article className={`result-row ${isRunning ? "in-progress" : ""}`} key={row.taskId}>
+                <button type="button" onClick={() => setExpanded((prev) => ({ ...prev, [row.taskId]: !isOpen }))}>
                   {isOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-                  <span className={result.passed ? "pass-pill" : "fail-pill"}>{result.passed ? "pass" : "fail"}</span>
-                  <strong>{result.taskId}</strong>
-                  <small>#{result.index} · {result.entryPoint} · {formatMs(result.generationMs)} · {assertsPassed}/{result.tests.length} asserts · {pct(assertScore)}</small>
+                  <span className={`${row.status}-pill`}>{isRunning ? "running" : row.status}</span>
+                  <strong>{row.taskId}</strong>
+                  <small>
+                    #{row.index} · {row.entryPoint || "entry point pending"} · {isRunning ? "in progress" : formatMs(result?.generationMs)}
+                    {result ? ` · ${assertsPassed}/${result.tests.length} asserts · ${pct(assertScore)}` : ""}
+                  </small>
                 </button>
                 {isOpen ? (
                   <div className="result-detail">
-                    {result.modelError ? <pre>{result.modelError}</pre> : null}
-                    <details open><summary>Assert ledger</summary>{result.tests.map((test, index) => <pre key={index} className={test.passed ? "assert-pass" : "assert-fail"}>{formatAssert(test)}</pre>)}</details>
-                    <details open><summary>Prompt sent to model</summary><pre>{result.instructionPrompt || result.prompt}</pre></details>
-                    <details><summary>Original HumanEval task</summary><pre>{result.prompt}</pre></details>
-                    <details><summary>Thinking</summary><pre>{result.thinkingOutput || "No separate thinking stream captured."}</pre></details>
-                    <details><summary>Raw output</summary><pre>{result.rawOutput}</pre></details>
-                    <details><summary>Extracted code</summary><pre>{result.extractedCode}</pre></details>
-                    <details><summary>HumanEval tests</summary><pre>{result.test}</pre></details>
-                    <details><summary>Traceback / harness</summary><pre>{result.traceback || result.error || result.harnessStderr || "No harness error."}</pre></details>
+                    {isRunning ? (
+                      <details open>
+                        <summary>Live output</summary>
+                        {liveOutput.length ? liveOutput.map(([channel, text]) => (
+                          <pre key={channel}>{`${channel}\n\n${text}`}</pre>
+                        )) : <pre>Waiting for model tokens...</pre>}
+                      </details>
+                    ) : null}
+                    {result?.modelError ? <pre>{result.modelError}</pre> : null}
+                    {result ? <details open><summary>Assert ledger</summary>{result.tests.map((test, index) => <pre key={index} className={test.passed ? "assert-pass" : "assert-fail"}>{formatAssert(test)}</pre>)}</details> : null}
+                    <details open><summary>Prompt sent to model</summary><pre>{result?.instructionPrompt || row.prompt || "Prompt pending."}</pre></details>
+                    <details><summary>Original HumanEval task</summary><pre>{result?.prompt || row.prompt || "Task prompt pending."}</pre></details>
+                    {result ? <details><summary>Thinking</summary><pre>{result.thinkingOutput || "No separate thinking stream captured."}</pre></details> : null}
+                    {result ? <details><summary>Raw output</summary><pre>{result.rawOutput}</pre></details> : null}
+                    {result ? <details><summary>Extracted code</summary><pre>{result.extractedCode}</pre></details> : null}
+                    <details><summary>HumanEval tests</summary><pre>{result?.test || row.test || "Tests pending."}</pre></details>
+                    {result ? <details><summary>Traceback / harness</summary><pre>{result.traceback || result.error || result.harnessStderr || "No harness error."}</pre></details> : null}
                   </div>
                 ) : null}
               </article>
             );
-          })}
+          }) : <p className="empty-copy">Tasks will appear as soon as they start.</p>}
         </section>
       </section>
     </main>
