@@ -1,0 +1,146 @@
+.variability-panel {
+  min-width: 0;
+  overflow: hidden;
+  background: rgba(251, 251, 246, 0.94);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+.variability-body {
+  display: grid;
+  gap: 14px;
+  padding: 14px;
+}
+
+.variability-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1px;
+  overflow: hidden;
+  background: var(--line);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+.variability-summary > div {
+  min-width: 0;
+  padding: 12px;
+  background: #ffffff;
+}
+
+.variability-summary span,
+.pass-chart-row > span,
+.pass-chart-row small,
+.consistency-legend {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.variability-summary span {
+  display: block;
+  text-transform: uppercase;
+}
+
+.variability-summary strong {
+  display: block;
+  margin-top: 7px;
+  overflow-wrap: anywhere;
+  font-size: 22px;
+}
+
+.variability-summary small {
+  display: block;
+  margin-top: 4px;
+  color: #7c8378;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.pass-chart {
+  display: grid;
+  gap: 9px;
+}
+
+.pass-chart-row {
+  display: grid;
+  grid-template-columns: minmax(62px, max-content) minmax(120px, 1fr) minmax(62px, max-content) minmax(42px, max-content);
+  gap: 10px;
+  align-items: center;
+  min-width: 0;
+}
+
+.pass-chart-row > span,
+.pass-chart-row small {
+  white-space: nowrap;
+}
+
+.pass-chart-row b {
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.pass-bar-track {
+  height: 18px;
+  overflow: hidden;
+  background: #e3e8df;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+}
+
+.pass-bar-track i {
+  display: block;
+  height: 100%;
+  min-width: 0;
+  background: linear-gradient(90deg, var(--green), #6aa34b);
+  border-radius: inherit;
+}
+
+.consistency-block {
+  display: grid;
+  gap: 8px;
+}
+
+.consistency-strip {
+  display: flex;
+  height: 12px;
+  overflow: hidden;
+  background: #dce3dc;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+}
+
+.consistency-strip span {
+  display: block;
+  height: 100%;
+}
+
+.consistency-pass {
+  background: var(--green);
+}
+
+.consistency-mixed {
+  background: #d78b22;
+}
+
+.consistency-fail {
+  background: var(--brick);
+}
+
+.consistency-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+}
+
+.consistency-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.consistency-legend i {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+}

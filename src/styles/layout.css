@@ -1,0 +1,168 @@
+.bench-main {
+  display: grid;
+  align-content: start;
+  gap: 18px;
+  min-width: 0;
+  padding: clamp(18px, 2.8vw, 34px);
+}
+
+.run-strip {
+  min-width: 0;
+  overflow: hidden;
+  background: rgba(251, 251, 246, 0.94);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+.run-list {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(230px, 330px);
+  gap: 1px;
+  overflow-x: auto;
+  background: var(--line);
+}
+
+.run-tab {
+  position: relative;
+  min-width: 0;
+  background: #ffffff;
+}
+
+.run-tab-main {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 3px 9px;
+  width: 100%;
+  min-height: 68px;
+  padding: 11px 42px 11px 12px;
+  text-align: left;
+  background: transparent;
+  border: 0;
+}
+
+.run-tab.active {
+  background: #f4f8ef;
+  box-shadow: inset 0 -3px 0 var(--green);
+}
+
+.run-tab-main strong,
+.run-tab-main small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.run-tab-main strong {
+  font-size: 13px;
+}
+
+.run-tab-main small {
+  grid-column: 2;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.run-delete {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  color: #8a2d18;
+  background: #ffffff;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 140ms ease, border-color 140ms ease, background 140ms ease;
+}
+
+.run-tab:hover .run-delete,
+.run-tab:focus-within .run-delete {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.run-delete:hover,
+.run-delete:focus-visible {
+  background: #ffe6e1;
+  border-color: #e2a198;
+}
+
+.status-dot {
+  width: 9px;
+  height: 9px;
+  margin-top: 4px;
+  background: #aab2a7;
+  border-radius: 999px;
+}
+
+.status-dot.live {
+  background: var(--brick);
+  box-shadow: 0 0 0 4px rgba(185, 70, 38, 0.13);
+}
+
+.bench-status {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.bench-score {
+  display: grid;
+  justify-items: end;
+  gap: 3px;
+}
+
+.bench-score strong {
+  font-family: "Source Serif 4", Georgia, serif;
+  font-size: clamp(38px, 7vw, 78px);
+  line-height: 0.9;
+}
+
+.bench-score span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.bench-score small {
+  color: #7c8378;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.progress-rail {
+  display: flex;
+  height: 12px;
+  overflow: hidden;
+  background: #dce3dc;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+}
+
+.progress-rail span {
+  display: block;
+  flex: 0 0 auto;
+  min-width: 0;
+  height: 100%;
+  transition: width 240ms ease;
+}
+
+.progress-failed {
+  background: var(--brick);
+}
+
+.progress-passed {
+  background: var(--green);
+}
+
+.progress-remaining {
+  background: #c8d1c7;
+}

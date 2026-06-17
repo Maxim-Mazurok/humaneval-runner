@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
@@ -244,6 +244,77 @@ describe("App notifications", () => {
     expect(screen.getByPlaceholderText("https://host/v1")).toHaveValue("http://localhost:8000/v1");
     const extraBodyField = screen.getByText("Extra request body").closest("label")?.querySelector("textarea");
     expect(extraBodyField).toHaveValue("{\n  \"top_p\": 1\n}");
+  });
+
+  it("posts the normalized benchmark configuration when starting a run", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/api/humaneval/runs") && init?.method === "POST") {
+        return jsonResponse(baseRun({ status: "queued", config: { model: "configured-model" } }), 201);
+      }
+      if (url.endsWith("/api/humaneval/runs")) {
+        return jsonResponse({ runs: [] });
+      }
+      return jsonResponse({ ...baseRun({ status: "queued" }), events: [] });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+    await userEvent.type(screen.getByPlaceholderText("provider/model-name"), "configured-model");
+    await userEvent.clear(screen.getByLabelText("Parallel"));
+    await userEvent.type(screen.getByLabelText("Parallel"), "99");
+    await userEvent.clear(screen.getByLabelText("Passes"));
+    await userEvent.type(screen.getByLabelText("Passes"), "101");
+    await userEvent.clear(screen.getByLabelText("System prompt"));
+    await userEvent.type(screen.getByLabelText("System prompt"), "system");
+    await userEvent.clear(screen.getByLabelText("Prompt template"));
+    await userEvent.type(screen.getByLabelText("Prompt template"), "prompt %problem_code%");
+    fireEvent.change(screen.getByLabelText("Extra request body"), { target: { value: "{\"top_p\":0.25}" } });
+
+    await userEvent.click(screen.getByRole("button", { name: /start run/i }));
+
+    const postCall = fetchMock.mock.calls.find(([, init]) => init?.method === "POST");
+    expect(postCall).toBeTruthy();
+    expect(JSON.parse(String(postCall?.[1]?.body))).toMatchObject({
+      model: "configured-model",
+      parallelTasks: 64,
+      passCount: 100,
+      systemPrompt: "system",
+      promptTemplate: "prompt %problem_code%",
+      temperature: 0,
+      extraBody: { top_p: 0.25 }
+    });
+  });
+
+  it("does not post a run when extra request body is invalid", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/api/humaneval/runs")) {
+        return jsonResponse({ runs: [] });
+      }
+      return jsonResponse(baseRun({ events: [] } as Partial<RunFixture>));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+    await userEvent.type(screen.getByPlaceholderText("provider/model-name"), "configured-model");
+    fireEvent.change(screen.getByLabelText("Extra request body"), { target: { value: "[]" } });
+    await userEvent.click(screen.getByRole("button", { name: /start run/i }));
+
+    await screen.findByText("Extra request body must be a JSON object.");
+    expect(fetchMock.mock.calls.some(([, init]) => init?.method === "POST")).toBe(false);
+  });
+
+  it("keeps start disabled until a model is entered", async () => {
+    vi.stubGlobal("fetch", vi.fn(() => jsonResponse({ runs: [] })));
+
+    render(<App />);
+    const startButton = screen.getByRole("button", { name: /start run/i });
+    expect(startButton).toBeDisabled();
+
+    await userEvent.type(screen.getByPlaceholderText("provider/model-name"), "demo-model");
+
+    expect(startButton).toBeEnabled();
   });
 
   it("only shows the ETA metric for runs that are in progress", async () => {
@@ -527,6 +598,9 @@ describe("App notifications", () => {
 
     await screen.findByText("HumanEval/0");
     const variabilityRegion = screen.getByRole("region", { name: /pass variability/i });
+    const passSpreadMetric = within(variabilityRegion).getByText("Pass spread").closest("div") as HTMLElement;
+    expect(within(passSpreadMetric).getByText("100%")).toBeInTheDocument();
+    expect(within(passSpreadMetric).queryByText("100%-100%")).not.toBeInTheDocument();
     expect(within(variabilityRegion).getByText("Pass 1")).toBeInTheDocument();
     expect(within(variabilityRegion).getByText("Pass 2 - 4")).toBeInTheDocument();
   });

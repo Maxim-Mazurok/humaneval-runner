@@ -1,0 +1,47 @@
+@media (max-width: 1120px) {
+  .bench-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .bench-sidebar {
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+}
+
+@media (max-width: 760px) {
+  .bench-main,
+  .bench-sidebar {
+    padding: 16px;
+  }
+
+  .bench-status {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .bench-score {
+    justify-items: start;
+  }
+
+  .bench-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .variability-summary,
+  .pass-chart-row {
+    grid-template-columns: 1fr;
+  }
+
+  .pass-chart-row {
+    gap: 6px;
+  }
+
+  .result-row > button {
+    grid-template-columns: auto auto minmax(0, 1fr);
+  }
+
+  .result-row small {
+    grid-column: 3;
+  }
+}

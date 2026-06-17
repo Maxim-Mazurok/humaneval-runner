@@ -1,0 +1,193 @@
+.results-panel {
+  min-width: 0;
+  background: rgba(251, 251, 246, 0.94);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+.pane-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px;
+  color: var(--muted);
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+  font-weight: 850;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.result-detail summary {
+  padding: 10px 14px;
+  cursor: pointer;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 850;
+}
+
+pre {
+  max-width: 100%;
+  margin: 0;
+  padding: 12px 14px;
+  overflow: auto;
+  color: #17201b;
+  background: #ffffff;
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.empty-copy {
+  margin: 0;
+  padding: 18px 14px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.results-panel {
+  overflow: hidden;
+}
+
+.result-row + .result-row {
+  border-top: 1px solid var(--line);
+}
+
+.result-row > button {
+  display: grid;
+  grid-template-columns: auto auto minmax(120px, 1fr) minmax(220px, auto);
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 48px;
+  padding: 8px 12px;
+  text-align: left;
+  background: transparent;
+  border: 0;
+}
+
+.result-row strong,
+.result-row small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.result-row small {
+  color: var(--muted);
+  font-weight: 750;
+}
+
+.comment-flag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 8px;
+  color: #8a2d18;
+  font-weight: 900;
+}
+
+.pass-pill,
+.fail-pill,
+.running-pill {
+  min-width: 68px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 900;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.pass-pill {
+  color: #12614e;
+  background: #dff2e8;
+}
+
+.fail-pill {
+  color: #8a2d18;
+  background: #ffe2d7;
+}
+
+.running-pill {
+  color: #24548a;
+  background: #dfeeff;
+}
+
+.result-row.in-progress {
+  background: #f7fbff;
+}
+
+.result-row.in-progress > button {
+  box-shadow: inset 3px 0 0 var(--blue);
+}
+
+.result-detail {
+  display: grid;
+  gap: 0;
+  border-top: 1px solid var(--line);
+}
+
+.pass-tabs {
+  display: flex;
+  gap: 8px;
+  padding: 10px 12px;
+  overflow-x: auto;
+  background: #f5f7f2;
+  border-bottom: 1px solid var(--line);
+}
+
+.pass-tabs > button {
+  display: grid;
+  grid-template-columns: auto minmax(54px, max-content);
+  gap: 3px 8px;
+  align-items: center;
+  min-width: 170px;
+  padding: 8px 10px;
+  text-align: left;
+  color: var(--ink);
+  background: #ffffff;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+.pass-tabs > button.active {
+  border-color: #91b9a8;
+  box-shadow: inset 0 -3px 0 var(--green);
+}
+
+.pass-tabs strong,
+.pass-tabs small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pass-tabs small {
+  grid-column: 2;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.result-detail details + details {
+  border-top: 1px solid var(--line);
+}
+
+.assert-pass {
+  border-left: 4px solid var(--green);
+}
+
+.assert-fail {
+  border-left: 4px solid var(--brick);
+  background: #fff7f3;
+}
+
+.comment-signal {
+  border-left: 4px solid #d78b22;
+  background: #fffaf0;
+}

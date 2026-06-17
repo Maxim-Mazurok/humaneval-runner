@@ -1,0 +1,36 @@
+@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,650;8..60,750&display=swap");
+
+:root {
+  font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+  color: #21231f;
+  background: #eef3ef;
+  font-synthesis: none;
+  text-rendering: geometricPrecision;
+  --ink: #21231f;
+  --muted: #666b61;
+  --paper: #fbfbf6;
+  --line: #d7ddd3;
+  --green: #1f7a68;
+  --brick: #b94626;
+  --blue: #2f67b1;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
