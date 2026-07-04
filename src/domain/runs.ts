@@ -137,6 +137,12 @@ export function statusIsLive(status?: string) {
   return status === "running" || status === "queued";
 }
 
+export function runCanResume(run?: BenchRun | null) {
+  if (!run) return false;
+  if (statusIsLive(run.status) || run.status === "completed") return false;
+  return run.completed < runTotal(run);
+}
+
 export function statusIsInProgress(status?: string) {
   return status === "running";
 }

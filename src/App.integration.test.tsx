@@ -317,6 +317,73 @@ describe("App notifications", () => {
     expect(startButton).toBeEnabled();
   });
 
+  it("posts resume for an incomplete stopped run", async () => {
+    window.history.replaceState(null, "", "/run/run-1");
+    const stoppedRun = baseRun({
+      status: "cancelled",
+      total: 3,
+      completed: 1,
+      passed: 1,
+      failed: 0,
+      liveScore: 1,
+      finalScore: null,
+      finishedAt: "2026-06-16T00:00:10.000Z"
+    });
+    const resumedRun = baseRun({ ...stoppedRun, status: "running", finishedAt: null });
+    const staleEvents = [
+      {
+        type: "task-started",
+        at: "2026-06-16T00:00:01.000Z",
+        data: {
+          taskId: "HumanEval/0",
+          attemptId: "HumanEval/0::pass-1",
+          passNumber: 1,
+          passTotal: 1,
+          index: 0,
+          entryPoint: "foo",
+          prompt: "def foo(x): pass",
+          test: "assert foo(1) == 1"
+        }
+      },
+      {
+        type: "token",
+        at: "2026-06-16T00:00:02.000Z",
+        data: {
+          taskId: "HumanEval/0",
+          attemptId: "HumanEval/0::pass-1",
+          passNumber: 1,
+          index: 0,
+          channel: "output",
+          text: "old stale output"
+        }
+      }
+    ];
+    const fetchMock = vi.fn((input: RequestInfo | URL, requestInit?: RequestInit) => {
+      const requestUrl = String(input);
+      if (requestUrl.endsWith("/api/humaneval/runs/run-1/resume") && requestInit?.method === "POST") {
+        return jsonResponse(resumedRun);
+      }
+      if (requestUrl.endsWith("/api/humaneval/runs")) {
+        return jsonResponse({ runs: [stoppedRun] });
+      }
+      return jsonResponse({ ...stoppedRun, events: staleEvents });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+
+    const resumeButton = await screen.findByRole("button", { name: /resume/i });
+    await screen.findByText(/old stale output/i);
+    await waitFor(() => expect(resumeButton).toBeEnabled());
+    await userEvent.click(resumeButton);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:8787/api/humaneval/runs/run-1/resume",
+      { method: "POST" }
+    );
+    await waitFor(() => expect(screen.queryByText(/old stale output/i)).not.toBeInTheDocument());
+  });
+
   it("only shows the ETA metric for runs that are in progress", async () => {
     const completedRun = baseRun({
       status: "completed",

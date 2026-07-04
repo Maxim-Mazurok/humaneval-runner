@@ -24,6 +24,8 @@ live pass/fail results stream in as each task completes.
 - Copy buttons for failed or passed task numbers so you can rerun focused sets.
 - Server-side runs continue if the browser reloads; the UI can reconnect to
   active or historical runs.
+- Incomplete stopped, cancelled, interrupted, or errored runs can be resumed
+  from their existing saved results.
 
 ## Quick Start
 
@@ -87,6 +89,10 @@ executes the whole task set for pass 1, then the whole task set for pass 2, and
 so on. Results are grouped by HumanEval task in the UI, with pass tabs inside
 each task row.
 
+Use `Stop selected` to cancel an active run. If the run is incomplete, select it
+again and use `Resume` to continue only the attempts that do not already have
+saved results.
+
 The `Extra request body` field accepts a JSON object and is merged into the
 chat completion request. For example:
 
@@ -124,7 +130,8 @@ API endpoint details, model identifiers, prompt text, model completions, and
 reasoning/thinking traces.
 
 The API key entered in the UI is sent to the local benchmark server for outbound
-requests. It is not written to `run.json` or `results.json` by the server.
+requests. Saved run config stores `"***"` when a key was provided and `""` when
+it was empty; the plain text key is not written to `run.json` or `results.json`.
 
 ## Build
 

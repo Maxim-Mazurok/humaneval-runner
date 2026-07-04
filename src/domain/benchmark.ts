@@ -99,6 +99,7 @@ export type BenchRun = {
   config?: {
     baseUrl?: string;
     model?: string;
+    apiKey?: string;
     temperature?: number;
     systemPrompt?: string;
     promptTemplate?: string;

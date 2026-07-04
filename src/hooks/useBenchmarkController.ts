@@ -28,6 +28,7 @@ import {
   normalizePassCount,
   parseJsonObject,
   progressSegments,
+  runCanResume,
   readSidebarCollapsed,
   resultNumbers,
   scoreRange,
@@ -311,6 +312,29 @@ export function useBenchmarkController() {
     await loadRuns();
   }
 
+  async function resumeRun() {
+    if (!selectedRun || !runCanResume(selectedRun)) return;
+    setError(null);
+    try {
+      const response = await fetch(`${BENCH_API}/api/humaneval/runs/${selectedRun.id}/resume`, { method: "POST" });
+      const json = await response.json();
+      if (!response.ok) throw new Error(json.error || "Failed to resume run");
+      closeRunEvents(json.id);
+      setEvents([]);
+      setTokens([]);
+      setTaskStartedAtByRun((previous) => {
+        const { [json.id]: _ignored, ...rest } = previous;
+        return rest;
+      });
+      setRuns((previous) => updateRunInPlace(previous, json));
+      observedLiveRunsRef.current.add(json.id);
+      connectEvents(json.id);
+      await loadRuns();
+    } catch (resumeError) {
+      setError(resumeError instanceof Error ? resumeError.message : String(resumeError));
+    }
+  }
+
   async function deleteRun(run: BenchRun) {
     const label = `${run.model || "model"} · ${formatTime(run.createdAt)}`;
     if (!window.confirm(`Delete benchmark run?\n\n${label}\n\nThis removes its saved artifacts from disk.`)) return;
@@ -394,6 +418,7 @@ export function useBenchmarkController() {
     selectNewBench,
     startRun,
     cancelRun,
+    resumeRun,
     deleteRun,
     copyNumbers,
     copyThinkingNumbers,

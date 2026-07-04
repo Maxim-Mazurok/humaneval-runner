@@ -53,6 +53,7 @@ describe("createBenchmarkServer", () => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         baseUrl: "http://model.test/v1",
+        apiKey: "sk-live-secret",
         model: "demo-model",
         testNumbers: "0",
         passCount: 1
@@ -76,7 +77,8 @@ describe("createBenchmarkServer", () => {
 
     const runJson = JSON.parse(await fs.readFile(join(runsDir, created.id, "run.json"), "utf8"));
     const resultsJson = JSON.parse(await fs.readFile(join(runsDir, created.id, "results.json"), "utf8"));
-    expect(runJson).toMatchObject({ id: created.id, status: "completed", results: [] });
+    expect(runJson).toMatchObject({ id: created.id, status: "completed", results: [], config: { apiKey: "***" } });
+    expect(JSON.stringify(runJson)).not.toContain("sk-live-secret");
     expect(resultsJson[0]).toMatchObject({ taskId: "HumanEval/0", passed: true });
   });
 });

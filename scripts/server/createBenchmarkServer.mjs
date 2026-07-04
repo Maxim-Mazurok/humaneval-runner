@@ -10,6 +10,7 @@ import {
   normalizeParallelTasks,
   normalizePassCount,
   parseTestNumbers,
+  redactApiKey,
   runSummary
 } from "./domain.mjs";
 
@@ -155,7 +156,7 @@ export function createBenchmarkServer({
       selectedIndices,
       systemPrompt: String(config.systemPrompt ?? ""),
       promptTemplate: String(config.promptTemplate ?? ""),
-      publicConfig: { baseUrl, model: String(config.model || "").trim(), testNumbers: String(config.testNumbers || "") },
+      publicConfig: { baseUrl, model: String(config.model || "").trim(), apiKey: redactApiKey(config.apiKey), testNumbers: String(config.testNumbers || "") },
       total: plannedTaskCount,
       completed: 0,
       passed: 0,

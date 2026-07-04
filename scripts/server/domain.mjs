@@ -91,6 +91,10 @@ export function persistedRunState(run) {
   return runSummary(run, { includeResults: false });
 }
 
+export function redactApiKey(value) {
+  return String(value || "").trim() ? "***" : "";
+}
+
 export function formatRunDirTimestamp(value) {
   return new Date(value).toISOString().replaceAll(":", "-").replaceAll(".", "-");
 }

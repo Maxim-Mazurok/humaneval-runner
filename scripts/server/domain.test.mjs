@@ -13,6 +13,7 @@ import {
   normalizeParallelTasks,
   normalizePassCount,
   parseTestNumbers,
+  redactApiKey,
   runSummary
 } from "./domain.mjs";
 
@@ -115,16 +116,22 @@ describe("server domain helpers", () => {
     expect(compact.tests).toHaveLength(1);
   });
 
+  it("redacts api keys for persisted public run config", () => {
+    expect(redactApiKey(" sk-live-secret ")).toBe("***");
+    expect(redactApiKey("")).toBe("");
+    expect(redactApiKey(undefined)).toBe("");
+  });
+
   it("writes run and result artifacts with public run state", async () => {
     const dir = await fs.mkdtemp(join(tmpdir(), "humaneval-artifacts-"));
     tempDirs.push(dir);
-    const run = runFixture();
+    const run = runFixture({ publicConfig: { apiKey: "***", maxTokens: 2048, testNumbers: "0" } });
 
     await writeRunArtifacts(run, dir);
 
     const runJson = JSON.parse(await fs.readFile(join(run.dir, "run.json"), "utf8"));
     const resultsJson = JSON.parse(await fs.readFile(join(run.dir, "results.json"), "utf8"));
-    expect(runJson).toMatchObject({ id: "run-1", results: [], config: { testNumbers: "0" } });
+    expect(runJson).toMatchObject({ id: "run-1", results: [], config: { apiKey: "***", testNumbers: "0" } });
     expect(resultsJson).toHaveLength(1);
     expect(resultsJson[0].rawOutput).toContain("```python");
   });

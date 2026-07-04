@@ -61,6 +61,7 @@ export default function App() {
     selectNewBench,
     startRun,
     cancelRun,
+    resumeRun,
     deleteRun,
     copyNumbers,
     copyThinkingNumbers,
@@ -98,6 +99,7 @@ export default function App() {
           onCollapse={() => setSidebarCollapsed(true)}
           onStartRun={startRun}
           onCancelRun={cancelRun}
+          onResumeRun={resumeRun}
           setBaseUrl={setBaseUrl}
           setApiKey={setApiKey}
           setModel={setModel}

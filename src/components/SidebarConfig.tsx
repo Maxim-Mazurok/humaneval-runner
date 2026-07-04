@@ -4,12 +4,13 @@ import {
   KeyRound,
   PanelLeftClose,
   Play,
+  RotateCcw,
   Server,
   Settings2,
   TerminalSquare
 } from "lucide-react";
 import type { BenchRun } from "../domain/benchmark";
-import { normalizeParallelTasks, normalizePassCount, statusIsLive } from "../domain/runs";
+import { normalizeParallelTasks, normalizePassCount, runCanResume, statusIsLive } from "../domain/runs";
 
 export type SidebarConfigProps = {
   baseUrl: string;
@@ -30,6 +31,7 @@ export type SidebarConfigProps = {
   onCollapse: () => void;
   onStartRun: () => void;
   onCancelRun: () => void;
+  onResumeRun: () => void;
   setBaseUrl: (value: string) => void;
   setApiKey: (value: string) => void;
   setModel: (value: string) => void;
@@ -136,6 +138,9 @@ export function SidebarConfig(props: SidebarConfigProps) {
       <div className="bench-actions">
         <button className="primary-action" type="button" onClick={props.onStartRun} disabled={!props.model.trim()}>
           <Play size={17} /> Start run
+        </button>
+        <button className="secondary-action" type="button" onClick={props.onResumeRun} disabled={!runCanResume(props.selectedRun)}>
+          <RotateCcw size={17} /> Resume
         </button>
         <button className="secondary-action" type="button" onClick={props.onCancelRun} disabled={!statusIsLive(props.selectedRun?.status)}>
           <CircleStop size={17} /> Stop selected

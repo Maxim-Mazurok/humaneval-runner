@@ -18,9 +18,11 @@ import {
   normalizePassCount,
   parseTestNumbers,
   persistedRunState,
+  redactApiKey,
   runDirName,
   runSummary
 } from "./domain.mjs";
+import { fetchModelResponseWithRetry } from "./modelRetry.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const rootDir = join(__dirname, "../..");
@@ -63,44 +65,6 @@ async function ensureHumanEvalData() {
 
   const raw = await fs.readFile(humanEvalPath, "utf8");
   return raw.trim().split("\n").filter(Boolean).map((line) => JSON.parse(line));
-}
-
-function runSummary(run, { includeResults = true } = {}) {
-  const assertionsTotal = run.results.reduce((sum, result) => sum + (result.tests?.length || 0), 0);
-  const assertionsPassed = run.results.reduce(
-    (sum, result) => sum + (result.tests || []).filter((test) => test.passed).length,
-    0
-  );
-  return {
-    id: run.id,
-    status: run.status,
-    model: run.model,
-    baseUrl: run.baseUrl,
-    createdAt: run.createdAt,
-    startedAt: run.startedAt,
-    finishedAt: run.finishedAt,
-    total: run.total,
-    completed: run.completed,
-    passed: run.passed,
-    failed: run.failed,
-    liveScore: run.completed ? run.passed / run.completed : 0,
-    finalScore: run.total ? run.passed / run.total : null,
-    assertionsPassed,
-    assertionsTotal,
-    assertionScore: assertionsTotal ? assertionsPassed / assertionsTotal : 0,
-    currentTaskId: run.currentTaskId,
-    activeTaskIds: run.activeTaskIds || [],
-    config: {
-      baseUrl: run.baseUrl,
-      model: run.model,
-      parallelTasks: run.parallelTasks || 1,
-      passCount: run.passCount || 1,
-      ...(run.publicConfig || {})
-    },
-    logDir: run.dir,
-    selectedIndices: run.selectedIndices,
-    results: includeResults ? run.results : []
-  };
 }
 
 function ensureRunDir(run) {
@@ -178,6 +142,40 @@ function appendEvent(run, type, data = {}) {
   }
 }
 
+function resultAttemptId(result) {
+  if (result.attemptId) return result.attemptId;
+  if (!result.taskId) return null;
+  return `${result.taskId}::pass-${result.passNumber || 1}`;
+}
+
+function eventAttemptId(event) {
+  const taskId = event.data?.taskId;
+  if (!taskId) return null;
+  if (typeof event.data.attemptId === "string") return event.data.attemptId;
+  return `${taskId}::pass-${event.data.passNumber || 1}`;
+}
+
+function syncRunCountsFromResults(run) {
+  run.completed = run.results.length;
+  run.passed = run.results.filter((result) => result.passed).length;
+  run.failed = run.completed - run.passed;
+}
+
+const resumeDiscardEventTypes = new Set(["token", "raw", "raw-delta", "code-extracted"]);
+
+function discardResumeArtifacts(run) {
+  const retainedResults = run.results.filter((result) => !result.modelError);
+  const retainedAttemptIds = new Set(retainedResults.map(resultAttemptId).filter(Boolean));
+  run.results = retainedResults;
+  run.events = run.events.filter((event) => {
+    const attemptId = eventAttemptId(event);
+    if (!attemptId) return true;
+    if (resumeDiscardEventTypes.has(event.type)) return false;
+    return retainedAttemptIds.has(attemptId);
+  });
+  syncRunCountsFromResults(run);
+}
+
 async function callModel(run, problem, index, context = {}) {
   const controller = new AbortController();
   run.abortControllers ??= new Set();
@@ -197,14 +195,23 @@ async function callModel(run, problem, index, context = {}) {
   appendEvent(run, "prompt", { taskId: problem.task_id, index, ...context, messages, request: { ...body, messages } });
   const started = Date.now();
   try {
-    const response = await fetch(`${run.baseUrl}/chat/completions`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        ...(run.apiKey ? { authorization: `Bearer ${run.apiKey}` } : {})
+    const response = await fetchModelResponseWithRetry({
+      fetchImplementation: fetch,
+      requestUrl: `${run.baseUrl}/chat/completions`,
+      requestOptions: {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...(run.apiKey ? { authorization: `Bearer ${run.apiKey}` } : {})
+        },
+        body: JSON.stringify(body),
+        signal: controller.signal
       },
-      body: JSON.stringify(body),
-      signal: controller.signal
+      signal: controller.signal,
+      shouldStop: () => run.cancelled,
+      onRetry: ({ attemptNumber, errorMessage, retryDelayMilliseconds }) => {
+        appendEvent(run, "model-retry", { taskId: problem.task_id, index, ...context, attemptNumber, error: errorMessage, retryDelayMilliseconds });
+      }
     });
     if (!response.ok || !response.body) {
       const text = await response.text().catch(() => "");
@@ -445,9 +452,10 @@ async function executeTests(problem, code, timeoutSeconds) {
 }
 
 async function runHumanEval(run) {
-  if (run.deleted) return;
+  if (run.deleted || run.cancelled) return;
   run.status = "running";
   run.startedAt = run.startedAt || new Date().toISOString();
+  run.finishedAt = null;
   ensureRunDir(run);
   try {
     const allProblems = await ensureHumanEvalData();
@@ -463,7 +471,9 @@ async function runHumanEval(run) {
     const passCount = normalizePassCount(run.passCount);
     run.passCount = passCount;
     run.total = problems.length * passCount;
+    syncRunCountsFromResults(run);
     run.activeTaskIds = [];
+    const completedAttemptIds = new Set(run.results.map(resultAttemptId).filter(Boolean));
     appendEvent(run, "run-started", {
       summary: runSummary(run, { includeResults: false }),
       datasetSize: allProblems.length,
@@ -508,6 +518,7 @@ async function runHumanEval(run) {
         try {
           generation = await callModel(run, problem, index, context);
         } catch (error) {
+          if (run.cancelled) throw error;
           const result = {
             taskId: problem.task_id,
             attemptId,
@@ -588,14 +599,16 @@ async function runHumanEval(run) {
           attemptId: `${problem.task_id}::pass-${passNumber}`
         };
       });
-      const workerCount = Math.min(run.parallelTasks || 1, tasks.length || 1);
+      const remainingTasks = tasks.filter((task) => !completedAttemptIds.has(task.attemptId));
+      if (!remainingTasks.length) continue;
+      const workerCount = Math.min(run.parallelTasks || 1, remainingTasks.length || 1);
       let nextTask = 0;
       const getNextTaskIndex = () => {
         const taskIndex = nextTask;
         nextTask += 1;
         return taskIndex;
       };
-      await Promise.all(Array.from({ length: workerCount }, () => runWorker(tasks, getNextTaskIndex)));
+      await Promise.all(Array.from({ length: workerCount }, () => runWorker(remainingTasks, getNextTaskIndex)));
     }
     run.status = "completed";
     run.finishedAt = new Date().toISOString();
@@ -656,6 +669,7 @@ async function createRun(config) {
       timeoutSeconds: Number(config.timeoutSeconds ?? 15),
       parallelTasks,
       passCount,
+      apiKey: redactApiKey(config.apiKey),
       sampleLimit: Number(config.sampleLimit ?? 0),
       startIndex: Number(config.startIndex ?? 0),
       testNumbers: String(config.testNumbers || ""),
@@ -683,6 +697,29 @@ async function createRun(config) {
   return run;
 }
 
+function runCanResume(run) {
+  if (run.deleted) return false;
+  if (run.status === "running" || run.status === "queued") return false;
+  if (run.status === "completed") return false;
+  return run.completed < run.total;
+}
+
+function resumeRun(run) {
+  if (!runCanResume(run)) {
+    throw new Error("Run cannot be resumed.");
+  }
+  run.cancelled = false;
+  run.status = "queued";
+  run.finishedAt = null;
+  run.activeTaskIds = [];
+  run.currentTaskId = null;
+  run.abortController = null;
+  run.abortControllers = new Set();
+  discardResumeArtifacts(run);
+  queueMicrotask(() => runHumanEval(run));
+  return run;
+}
+
 async function loadPersistedRuns() {
   await fs.mkdir(runsDir, { recursive: true });
   const entries = await fs.readdir(runsDir, { withFileTypes: true }).catch(() => []);
@@ -697,7 +734,10 @@ async function loadPersistedRuns() {
       const run = {
         ...persisted,
         dir,
-        publicConfig: persisted.config || persisted.publicConfig || {},
+        publicConfig: {
+          ...(persisted.config || persisted.publicConfig || {}),
+          apiKey: redactApiKey((persisted.config || persisted.publicConfig || {}).apiKey)
+        },
         parallelTasks: normalizeParallelTasks(persisted.config?.parallelTasks ?? persisted.publicConfig?.parallelTasks ?? persisted.parallelTasks),
         passCount: normalizePassCount(persisted.config?.passCount ?? persisted.publicConfig?.passCount ?? persisted.passCount),
         activeTaskIds: [],
@@ -739,7 +779,7 @@ const server = createServer(async (req, res) => {
       const run = await createRun(body);
       return sendJson(res, 201, runSummary(run));
     }
-    const runMatch = url.pathname.match(/^\/api\/humaneval\/runs\/([^/]+)(?:\/(events|cancel))?$/);
+    const runMatch = url.pathname.match(/^\/api\/humaneval\/runs\/([^/]+)(?:\/(events|cancel|resume))?$/);
     if (runMatch) {
       const run = runs.get(runMatch[1]);
       if (!run) return sendJson(res, 404, { error: "Run not found" });
@@ -758,9 +798,18 @@ const server = createServer(async (req, res) => {
       if (req.method === "GET" && !runMatch[2]) return sendJson(res, 200, { ...runSummary(run), events: run.events });
       if (req.method === "POST" && runMatch[2] === "cancel") {
         run.cancelled = true;
+        if (run.status === "queued") {
+          run.status = "cancelled";
+          run.finishedAt = new Date().toISOString();
+          appendEvent(run, "error", { message: "Run cancelled.", summary: runSummary(run, { includeResults: false }) });
+        }
         for (const controller of run.abortControllers || []) controller.abort();
         run.abortController?.abort();
         return sendJson(res, 200, runSummary(run, { includeResults: false }));
+      }
+      if (req.method === "POST" && runMatch[2] === "resume") {
+        const resumedRun = resumeRun(run);
+        return sendJson(res, 200, runSummary(resumedRun, { includeResults: false }));
       }
       if (req.method === "GET" && runMatch[2] === "events") {
         res.writeHead(200, {
