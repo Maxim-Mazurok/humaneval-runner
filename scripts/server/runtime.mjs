@@ -65,7 +65,7 @@ async function ensureHumanEvalData() {
   return raw.trim().split("\n").filter(Boolean).map((line) => JSON.parse(line));
 }
 
- = {}) {
+function summarizeRun(run, includeResults = {}) {
   const assertionsTotal = run.results.reduce((sum, result) => sum + (result.tests?.length || 0), 0);
   const assertionsPassed = run.results.reduce(
     (sum, result) => sum + (result.tests || []).filter((test) => test.passed).length,
