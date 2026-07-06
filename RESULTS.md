@@ -11,3 +11,7 @@ Conclusions:
 - 4bit no thinking is very fast and smart enough
 - thinking makes 4bit worse, but improves 16bit
 - 16bit thinking is the best, but slowest
+
+## gemma-4-12B
+
+[unfinished 99/164] - 98% - 8192 thinking, 16384 tokens, gemma-4-12B-it-8bit, 11h35m
