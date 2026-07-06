@@ -7,6 +7,7 @@ import { writeRunArtifacts } from "./artifacts.mjs";
 import {
   buildPromptMessages,
   compactResult,
+  discardResumeArtifacts,
   extractCode,
   extractTextFromDelta,
   normalizeBaseUrl,
@@ -14,6 +15,7 @@ import {
   normalizePassCount,
   parseTestNumbers,
   redactApiKey,
+  runtimeConfigFromPersistedRun,
   runSummary
 } from "./domain.mjs";
 
@@ -120,6 +122,91 @@ describe("server domain helpers", () => {
     expect(redactApiKey(" sk-live-secret ")).toBe("***");
     expect(redactApiKey("")).toBe("");
     expect(redactApiKey(undefined)).toBe("");
+  });
+
+  it("restores runtime config from persisted public run state", () => {
+    const runtimeConfig = runtimeConfigFromPersistedRun({
+      timeoutSeconds: undefined,
+      maxTokens: undefined,
+      config: {
+        apiKey: "***",
+        temperature: 0.25,
+        maxTokens: 16384,
+        timeoutSeconds: 15,
+        sampleLimit: 0,
+        startIndex: 4,
+        parallelTasks: 2,
+        passCount: 100,
+        systemPrompt: "system",
+        promptTemplate: "prompt %problem_code%",
+        extraBody: { top_p: 0.8 }
+      }
+    });
+
+    expect(runtimeConfig).toMatchObject({
+      apiKey: "",
+      temperature: 0.25,
+      maxTokens: 16384,
+      timeoutSeconds: 15,
+      sampleLimit: 0,
+      startIndex: 4,
+      parallelTasks: 2,
+      passCount: 100,
+      systemPrompt: "system",
+      promptTemplate: "prompt %problem_code%",
+      extraBody: { top_p: 0.8 },
+      publicConfig: { apiKey: "***", timeoutSeconds: 15 }
+    });
+  });
+
+  it("discards model-error attempts before resuming a run", () => {
+    const run = runFixture({
+      total: 3,
+      completed: 3,
+      passed: 1,
+      failed: 2,
+      results: [
+        {
+          taskId: "HumanEval/0",
+          attemptId: "HumanEval/0::pass-1",
+          passNumber: 1,
+          passed: true,
+          tests: [{ source: "assert foo(1) == 1", passed: true }]
+        },
+        {
+          taskId: "HumanEval/1",
+          attemptId: "HumanEval/1::pass-1",
+          passNumber: 1,
+          passed: false,
+          modelError: "Model request failed",
+          tests: []
+        },
+        {
+          taskId: "HumanEval/99",
+          attemptId: "HumanEval/99::pass-1",
+          passNumber: 1,
+          passed: false,
+          error: "Execution timed out",
+          timeout: true,
+          tests: []
+        }
+      ],
+      events: [
+        { type: "run-started", data: {} },
+        { type: "task-started", data: { taskId: "HumanEval/0", attemptId: "HumanEval/0::pass-1" } },
+        { type: "token", data: { taskId: "HumanEval/0", attemptId: "HumanEval/0::pass-1" } },
+        { type: "task-finished", data: { taskId: "HumanEval/0", attemptId: "HumanEval/0::pass-1" } },
+        { type: "task-started", data: { taskId: "HumanEval/1", attemptId: "HumanEval/1::pass-1" } },
+        { type: "task-started", data: { taskId: "HumanEval/99", attemptId: "HumanEval/99::pass-1" } }
+      ]
+    });
+
+    discardResumeArtifacts(run);
+
+    expect(run.results.map((result) => result.attemptId)).toEqual(["HumanEval/0::pass-1", "HumanEval/99::pass-1"]);
+    expect(run).toMatchObject({ completed: 2, passed: 1, failed: 1 });
+    expect(run.events.map((event) => event.type)).toEqual(["run-started", "task-started", "task-finished", "task-started"]);
+    expect(run.events.some((event) => event.data.attemptId === "HumanEval/1::pass-1")).toBe(false);
   });
 
   it("writes run and result artifacts with public run state", async () => {

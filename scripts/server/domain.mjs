@@ -91,6 +91,61 @@ export function persistedRunState(run) {
   return runSummary(run, { includeResults: false });
 }
 
+export function runtimeConfigFromPersistedRun(persisted) {
+  const persistedConfig = persisted.config || persisted.publicConfig || {};
+  return {
+    publicConfig: {
+      ...persistedConfig,
+      apiKey: redactApiKey(persistedConfig.apiKey)
+    },
+    apiKey: persistedConfig.apiKey === "***" ? "" : String(persistedConfig.apiKey || "").trim(),
+    temperature: Number(persistedConfig.temperature ?? persisted.temperature ?? 0),
+    maxTokens: Number(persistedConfig.maxTokens ?? persisted.maxTokens ?? 2048),
+    timeoutSeconds: Number(persistedConfig.timeoutSeconds ?? persisted.timeoutSeconds ?? 15),
+    sampleLimit: Number(persistedConfig.sampleLimit ?? persisted.sampleLimit ?? 0),
+    startIndex: Number(persistedConfig.startIndex ?? persisted.startIndex ?? 0),
+    systemPrompt: String(persistedConfig.systemPrompt ?? persisted.systemPrompt ?? defaultSystemPrompt),
+    promptTemplate: String(persistedConfig.promptTemplate ?? persisted.promptTemplate ?? defaultPromptTemplate),
+    extraBody: persistedConfig.extraBody && typeof persistedConfig.extraBody === "object" ? persistedConfig.extraBody : {},
+    parallelTasks: normalizeParallelTasks(persistedConfig.parallelTasks ?? persisted.parallelTasks),
+    passCount: normalizePassCount(persistedConfig.passCount ?? persisted.passCount)
+  };
+}
+
+export function resultAttemptId(result) {
+  if (result.attemptId) return result.attemptId;
+  if (!result.taskId) return null;
+  return `${result.taskId}::pass-${result.passNumber || 1}`;
+}
+
+export function eventAttemptId(event) {
+  const taskId = event.data?.taskId;
+  if (!taskId) return null;
+  if (typeof event.data.attemptId === "string") return event.data.attemptId;
+  return `${taskId}::pass-${event.data.passNumber || 1}`;
+}
+
+export function syncRunCountsFromResults(run) {
+  run.completed = run.results.length;
+  run.passed = run.results.filter((result) => result.passed).length;
+  run.failed = run.completed - run.passed;
+}
+
+const resumeDiscardEventTypes = new Set(["token", "raw", "raw-delta", "code-extracted"]);
+
+export function discardResumeArtifacts(run) {
+  const retainedResults = run.results.filter((result) => !result.modelError);
+  const retainedAttemptIds = new Set(retainedResults.map(resultAttemptId).filter(Boolean));
+  run.results = retainedResults;
+  run.events = run.events.filter((event) => {
+    const attemptId = eventAttemptId(event);
+    if (!attemptId) return true;
+    if (resumeDiscardEventTypes.has(event.type)) return false;
+    return retainedAttemptIds.has(attemptId);
+  });
+  syncRunCountsFromResults(run);
+}
+
 export function redactApiKey(value) {
   return String(value || "").trim() ? "***" : "";
 }

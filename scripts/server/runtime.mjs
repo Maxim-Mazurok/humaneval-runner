@@ -11,6 +11,7 @@ import {
   compactResult,
   defaultPromptTemplate,
   defaultSystemPrompt,
+  discardResumeArtifacts,
   extractCode,
   extractTextFromDelta,
   normalizeBaseUrl,
@@ -19,8 +20,11 @@ import {
   parseTestNumbers,
   persistedRunState,
   redactApiKey,
+  resultAttemptId,
   runDirName,
-  runSummary
+  runtimeConfigFromPersistedRun,
+  runSummary,
+  syncRunCountsFromResults
 } from "./domain.mjs";
 import { fetchModelResponseWithRetry } from "./modelRetry.mjs";
 
@@ -140,40 +144,6 @@ function appendEvent(run, type, data = {}) {
     res.write(`event: ${type}\n`);
     res.write(`data: ${JSON.stringify(event)}\n\n`);
   }
-}
-
-function resultAttemptId(result) {
-  if (result.attemptId) return result.attemptId;
-  if (!result.taskId) return null;
-  return `${result.taskId}::pass-${result.passNumber || 1}`;
-}
-
-function eventAttemptId(event) {
-  const taskId = event.data?.taskId;
-  if (!taskId) return null;
-  if (typeof event.data.attemptId === "string") return event.data.attemptId;
-  return `${taskId}::pass-${event.data.passNumber || 1}`;
-}
-
-function syncRunCountsFromResults(run) {
-  run.completed = run.results.length;
-  run.passed = run.results.filter((result) => result.passed).length;
-  run.failed = run.completed - run.passed;
-}
-
-const resumeDiscardEventTypes = new Set(["token", "raw", "raw-delta", "code-extracted"]);
-
-function discardResumeArtifacts(run) {
-  const retainedResults = run.results.filter((result) => !result.modelError);
-  const retainedAttemptIds = new Set(retainedResults.map(resultAttemptId).filter(Boolean));
-  run.results = retainedResults;
-  run.events = run.events.filter((event) => {
-    const attemptId = eventAttemptId(event);
-    if (!attemptId) return true;
-    if (resumeDiscardEventTypes.has(event.type)) return false;
-    return retainedAttemptIds.has(attemptId);
-  });
-  syncRunCountsFromResults(run);
 }
 
 async function callModel(run, problem, index, context = {}) {
@@ -421,30 +391,35 @@ except BaseException as exc:
 }
 
 async function executeTests(problem, code, timeoutSeconds) {
-  const dir = await fs.mkdtemp(join(tmpdir(), "humaneval-"));
-  const scriptPath = join(dir, "run.py");
+  const directory = await fs.mkdtemp(join(tmpdir(), "humaneval-"));
+  const scriptPath = join(directory, "run.py");
   await fs.writeFile(scriptPath, pythonHarness(code, problem.test, problem.entry_point), "utf8");
   return await new Promise((resolve) => {
     const child = spawn("python3", [scriptPath], {
-      cwd: dir,
-      env: { PATH: process.env.PATH || "/usr/bin:/usr/local/bin", LANG: "en_US.UTF-8", HOME: dir }
+      cwd: directory,
+      env: { PATH: process.env.PATH || "/usr/bin:/usr/local/bin", LANG: "en_US.UTF-8", HOME: directory }
     });
     let stdout = "";
     let stderr = "";
+    let timedOut = false;
     const timeout = setTimeout(() => {
+      timedOut = true;
       child.kill("SIGKILL");
-      resolve({ passed: false, tests: [], stdout, stderr, error: "Execution timed out", timeout: true });
     }, timeoutSeconds * 1000);
     child.stdout.on("data", (chunk) => { stdout += chunk; });
     child.stderr.on("data", (chunk) => { stderr += chunk; });
     child.on("close", async () => {
       clearTimeout(timeout);
-      await fs.rm(dir, { recursive: true, force: true }).catch(() => {});
+      await fs.rm(directory, { recursive: true, force: true }).catch(() => {});
       const lastLine = stdout.trim().split("\n").filter(Boolean).pop();
       try {
         const parsed = lastLine ? JSON.parse(lastLine) : {};
         resolve({ ...parsed, harnessStdout: stdout, harnessStderr: stderr });
       } catch {
+        if (timedOut) {
+          resolve({ passed: false, tests: [], stdout, stderr, error: "Execution timed out", timeout: true, harnessStdout: stdout, harnessStderr: stderr });
+          return;
+        }
         resolve({ passed: false, tests: [], stdout, stderr, error: "Harness returned non-JSON output", harnessStdout: stdout, harnessStderr: stderr });
       }
     });
@@ -731,15 +706,11 @@ async function loadPersistedRuns() {
       const persisted = JSON.parse(raw);
       const resultsRaw = await fs.readFile(join(dir, "results.json"), "utf8").catch(() => "[]");
       const results = JSON.parse(resultsRaw);
+      const persistedRuntimeConfig = runtimeConfigFromPersistedRun(persisted);
       const run = {
         ...persisted,
+        ...persistedRuntimeConfig,
         dir,
-        publicConfig: {
-          ...(persisted.config || persisted.publicConfig || {}),
-          apiKey: redactApiKey((persisted.config || persisted.publicConfig || {}).apiKey)
-        },
-        parallelTasks: normalizeParallelTasks(persisted.config?.parallelTasks ?? persisted.publicConfig?.parallelTasks ?? persisted.parallelTasks),
-        passCount: normalizePassCount(persisted.config?.passCount ?? persisted.publicConfig?.passCount ?? persisted.passCount),
         activeTaskIds: [],
         events: [],
         eventSeq: 0,
