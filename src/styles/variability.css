@@ -64,7 +64,7 @@
 
 .pass-chart-row {
   display: grid;
-  grid-template-columns: minmax(62px, max-content) minmax(120px, 1fr) minmax(62px, max-content) minmax(42px, max-content);
+  grid-template-columns: minmax(62px, max-content) minmax(120px, 1fr) 62px 42px 116px;
   gap: 10px;
   align-items: center;
   min-width: 0;
@@ -73,6 +73,13 @@
 .pass-chart-row > span,
 .pass-chart-row small {
   white-space: nowrap;
+}
+
+.pass-chart-time {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  width: 116px;
 }
 
 .pass-chart-row b {

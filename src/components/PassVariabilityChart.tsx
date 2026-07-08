@@ -1,10 +1,9 @@
 import type { BenchRun } from "../domain/benchmark";
 import { groupSequentialChartPasses, passRangeLabel, passVariabilityStats } from "../domain/passes";
-import { pct } from "../domain/runs";
+import { formatMs, pct } from "../domain/runs";
 
 export function PassVariabilityChart({ run }: { run: BenchRun | null }) {
   const stats = passVariabilityStats(run);
-  const completedRows = stats.passRows.filter((row) => row.completed > 0);
   const chartPassGroups = groupSequentialChartPasses(stats.passRows);
   const scoreSwing = stats.maxScore - stats.minScore;
   const hasSpread = stats.spreadPassCount > 0;
@@ -38,7 +37,7 @@ export function PassVariabilityChart({ run }: { run: BenchRun | null }) {
           </div>
           <div>
             <span>Completed passes</span>
-            <strong>{completedRows.length}/{stats.passTotal}</strong>
+            <strong>{stats.completedPassCount}/{stats.passTotal}</strong>
             <small>{hasMultiplePasses ? "Per-pass score below" : "Run with 2+ passes"}</small>
           </div>
         </div>
@@ -60,6 +59,7 @@ export function PassVariabilityChart({ run }: { run: BenchRun | null }) {
                 </div>
                 <b>{group.row.completed ? pct(group.row.score) : "pending"}</b>
                 <small>{group.row.completed ? `${group.row.passed}/${group.row.completed}` : "0/0"}</small>
+                <small className="pass-chart-time">{passGroupTimeLabel(group)}</small>
               </div>
             ))}
           </div>
@@ -94,4 +94,10 @@ export function PassVariabilityChart({ run }: { run: BenchRun | null }) {
       </div>
     </section>
   );
+}
+
+function passGroupTimeLabel(group: ReturnType<typeof groupSequentialChartPasses>[number]) {
+  return group.averagePassDurationMilliseconds
+    ? `avg run ${formatMs(group.averagePassDurationMilliseconds)}`
+    : "";
 }

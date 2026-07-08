@@ -28,16 +28,35 @@ export function passVariabilityStats(run?: BenchRun | null): PassVariabilityStat
   );
   const passRows = new Map<number, PassVariabilityStats["passRows"][number]>();
   for (let passNumber = 1; passNumber <= passTotal; passNumber += 1) {
-    passRows.set(passNumber, { passNumber, completed: 0, passed: 0, failed: 0, score: 0 });
+    passRows.set(passNumber, {
+      passNumber,
+      completed: 0,
+      passed: 0,
+      failed: 0,
+      score: 0,
+      passDurationMilliseconds: null,
+      fullyCompleted: false
+    });
   }
   const taskRows = new Map<string, { completed: number; passed: number }>();
 
   for (const result of results) {
     const passNumber = attemptPassNumber(result);
-    const row = passRows.get(passNumber) ?? { passNumber, completed: 0, passed: 0, failed: 0, score: 0 };
+    const row = passRows.get(passNumber) ?? {
+      passNumber,
+      completed: 0,
+      passed: 0,
+      failed: 0,
+      score: 0,
+      passDurationMilliseconds: null,
+      fullyCompleted: false
+    };
     row.completed += 1;
     if (result.passed) row.passed += 1;
     else row.failed += 1;
+    if (typeof result.generationMs === "number" && Number.isFinite(result.generationMs) && result.generationMs > 0) {
+      row.passDurationMilliseconds = (row.passDurationMilliseconds ?? 0) + result.generationMs;
+    }
     row.score = row.completed ? row.passed / row.completed : 0;
     passRows.set(passNumber, row);
 
@@ -47,9 +66,12 @@ export function passVariabilityStats(run?: BenchRun | null): PassVariabilityStat
     taskRows.set(result.taskId, task);
   }
 
-  const completedRows = [...passRows.values()].filter((row) => row.completed > 0);
   const tasksPerPass = Math.max(1, Math.ceil(runTotal(run) / passTotal));
-  const spreadRows = completedRows.filter((row) => row.completed >= tasksPerPass);
+  const sortedPassRows = [...passRows.values()]
+    .sort((left, right) => left.passNumber - right.passNumber)
+    .map((row) => ({ ...row, fullyCompleted: row.completed >= tasksPerPass }));
+  const completedRows = sortedPassRows.filter((row) => row.completed > 0);
+  const spreadRows = completedRows.filter((row) => row.fullyCompleted);
   const scores = spreadRows.map((row) => row.score);
   let allPass = 0;
   let mixed = 0;
@@ -61,8 +83,9 @@ export function passVariabilityStats(run?: BenchRun | null): PassVariabilityStat
   }
 
   return {
-    passRows: [...passRows.values()].sort((left, right) => left.passNumber - right.passNumber),
+    passRows: sortedPassRows,
     passTotal,
+    completedPassCount: spreadRows.length,
     minScore: scores.length ? Math.min(...scores) : 0,
     maxScore: scores.length ? Math.max(...scores) : 0,
     spreadPassCount: spreadRows.length,
@@ -123,13 +146,32 @@ export function groupSequentialChartPasses(
         key: `chart-range-${row.passNumber}::merge::${mergeKey}`,
         startPass: row.passNumber,
         endPass: row.passNumber,
-        row
+        row,
+        rows: [row],
+        averagePassDurationMilliseconds: row.fullyCompleted ? row.passDurationMilliseconds : null,
+        completedPassCount: row.fullyCompleted ? 1 : 0
       });
       continue;
     }
     previousGroup.endPass = row.passNumber;
+    previousGroup.rows.push(row);
+    previousGroup.averagePassDurationMilliseconds = averagePassDurationMilliseconds(previousGroup.rows);
+    previousGroup.completedPassCount = previousGroup.rows.filter((passRow) => passRow.fullyCompleted).length;
   }
   return groups;
+}
+
+function averagePassDurationMilliseconds(rows: PassVariabilityStats["passRows"]) {
+  const completedRowsWithDuration = rows.filter(
+    (row) => row.fullyCompleted && row.passDurationMilliseconds !== null
+  );
+  const passDurationTotalMilliseconds = completedRowsWithDuration.reduce(
+    (totalMilliseconds, row) => totalMilliseconds + (row.passDurationMilliseconds ?? 0),
+    0
+  );
+  return completedRowsWithDuration.length
+    ? passDurationTotalMilliseconds / completedRowsWithDuration.length
+    : null;
 }
 
 export function groupedGenerationLabel(attempts: TaskRow[]) {

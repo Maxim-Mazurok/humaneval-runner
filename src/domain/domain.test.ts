@@ -157,20 +157,24 @@ describe("pass and task derivation", () => {
       finishedAt: null,
       config: { passCount: 2 },
       results: [
-        result({ taskId: "HumanEval/0", passNumber: 1, passTotal: 2, passed: true }),
-        result({ taskId: "HumanEval/1", passNumber: 1, passTotal: 2, passed: true }),
+        result({ taskId: "HumanEval/0", passNumber: 1, passTotal: 2, passed: true, generationMs: 1000 }),
+        result({ taskId: "HumanEval/1", passNumber: 1, passTotal: 2, passed: true, generationMs: 2000 }),
         result({ taskId: "HumanEval/0", passNumber: 2, passTotal: 2, passed: false })
       ]
     });
     const stats = passVariabilityStats(sample);
+    const chartGroups = groupSequentialChartPasses(stats.passRows);
 
     expect(stats.passRows.map((row) => [row.passNumber, row.passed, row.completed])).toEqual([
       [1, 2, 2],
       [2, 0, 1]
     ]);
+    expect(stats.completedPassCount).toBe(1);
     expect(stats.spreadPassCount).toBe(1);
     expect(stats.minScore).toBe(1);
     expect(stats.maxScore).toBe(1);
+    expect(chartGroups[0].averagePassDurationMilliseconds).toBe(3000);
+    expect(chartGroups[1].averagePassDurationMilliseconds).toBeNull();
   });
 
   it("derives task groups, prompt info, and token channel output", () => {

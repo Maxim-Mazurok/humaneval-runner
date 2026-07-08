@@ -14,4 +14,4 @@ Conclusions:
 
 ## gemma-4-12B
 
-[unfinished 99/164] - 98% - 8192 thinking, 16384 tokens, gemma-4-12B-it-8bit, 11h35m
+97% - 8192 thinking, 16384 tokens, 1 pass, gemma-4-12B-it-8bit, 23h33m

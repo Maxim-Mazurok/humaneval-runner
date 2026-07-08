@@ -172,6 +172,9 @@ export type ChartPassGroup = {
   startPass: number;
   endPass: number;
   row: PassVariabilityStats["passRows"][number];
+  rows: PassVariabilityStats["passRows"];
+  averagePassDurationMilliseconds: number | null;
+  completedPassCount: number;
 };
 
 export type TaskPromptInfo = {
@@ -205,8 +208,11 @@ export type PassVariabilityStats = {
     passed: number;
     failed: number;
     score: number;
+    passDurationMilliseconds: number | null;
+    fullyCompleted: boolean;
   }>;
   passTotal: number;
+  completedPassCount: number;
   minScore: number;
   maxScore: number;
   spreadPassCount: number;
