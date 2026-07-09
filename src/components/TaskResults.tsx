@@ -11,6 +11,7 @@ import {
   passRangeLabel
 } from "../domain/passes";
 import { buildInstructionPromptFallback } from "../domain/prompts";
+import { recordTaskResultsRenderMeasurement, textByteLength } from "../domain/performanceMetrics";
 import { formatAssert, pct, runPassCount } from "../domain/runs";
 import { orderedChannelOutput } from "../domain/tasks";
 
@@ -35,12 +36,17 @@ export function TaskResults({
   setExpanded: (updater: (previous: Record<string, boolean>) => Record<string, boolean>) => void;
   setSelectedPassByTask: (updater: (previous: Record<string, number>) => Record<string, number>) => void;
 }) {
+  const performanceMetricsEnabled = typeof window !== "undefined" && Boolean(window.humanEvalPerformanceMetrics);
+  let detailPanelCount = 0;
+  let visiblePreTextBytes = 0;
+  let attemptViewBuildDurationMilliseconds = 0;
   return (
     <section className="results-panel">
       <div className="pane-head">Tasks</div>
       {taskGroups.length ? taskGroups.map((group) => {
         const runningAttempt = group.attempts.find((attempt) => attempt.status === "running");
         const passTotal = Math.max(runPassCount(selectedRun), ...group.attempts.map((attempt) => attempt.passTotal || 1));
+        const attemptViewBuildStartedAt = performanceMetricsEnabled ? performance.now() : 0;
         const attemptViews = group.attempts.map((attempt) => {
           const attemptResult = attempt.result;
           const promptInfo = promptInfoByAttempt.get(attempt.key);
@@ -78,6 +84,7 @@ export function TaskResults({
             })
           };
         });
+        if (performanceMetricsEnabled) attemptViewBuildDurationMilliseconds += performance.now() - attemptViewBuildStartedAt;
         const passTabGroups = groupSequentialPasses(attemptViews);
         const requestedPass = selectedPassByTask[group.taskId];
         const activePassGroup = passTabGroups.find((tabGroup) => (
@@ -110,6 +117,33 @@ export function TaskResults({
           ?? result?.instructionPrompt
           ?? buildInstructionPromptFallback(selectedRun, originalPrompt);
         const testPrompt = activeAttemptView?.testPrompt ?? result?.test ?? row.test;
+        if (performanceMetricsEnabled && isOpen) {
+          detailPanelCount += 1;
+          visiblePreTextBytes += textByteLength(instructionPrompt || "Prompt pending.");
+          visiblePreTextBytes += textByteLength(originalPrompt || "Task prompt pending.");
+          visiblePreTextBytes += textByteLength(testPrompt || "Tests pending.");
+          visiblePreTextBytes += liveOutput.reduce((totalBytes, [channel, text]) => totalBytes + textByteLength(`${channel}\n\n${text}`), 0);
+          if (result?.modelError) visiblePreTextBytes += textByteLength(result.modelError);
+          if (result?.tests.length) {
+            visiblePreTextBytes += result.tests.reduce((totalBytes, test) => totalBytes + textByteLength(formatAssert(test)), 0);
+          }
+          if (thinkingInComments) visiblePreTextBytes += textByteLength(formatCommentSignal(commentSignal, commentSignalThreshold));
+          if (result?.thinkingOutput) visiblePreTextBytes += textByteLength(result.thinkingOutput);
+          if (result?.rawOutput) visiblePreTextBytes += textByteLength(result.rawOutput);
+          if (result?.extractedCode) visiblePreTextBytes += textByteLength(result.extractedCode);
+          if (result?.traceback || result?.error || result?.harnessStderr) {
+            visiblePreTextBytes += textByteLength(result.traceback || result.error || result.harnessStderr || "No harness error.");
+          }
+        }
+        if (performanceMetricsEnabled && group === taskGroups[taskGroups.length - 1]) {
+          recordTaskResultsRenderMeasurement({
+            runId: selectedRun?.id ?? null,
+            taskRowCount: taskGroups.length,
+            detailPanelCount,
+            visiblePreTextBytes,
+            attemptViewBuildDurationMilliseconds
+          });
+        }
         return (
           <article className={`result-row ${groupIsRunning ? "in-progress" : ""}`} key={group.taskId}>
             <button type="button" onClick={() => setExpanded((prev) => ({ ...prev, [group.taskId]: !isOpen }))}>

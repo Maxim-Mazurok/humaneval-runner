@@ -38,14 +38,47 @@ const port = Number(process.env.HUMANEVAL_PORT || 8787);
 const runs = new Map();
 const taskLogWriteQueues = new Map();
 const maxReplayEvents = 5000;
-function sendJson(res, status, payload) {
+const performanceLogEnabled = process.env.HUMANEVAL_PERFORMANCE_LOG === "1";
+
+function byteLength(text) {
+  return Buffer.byteLength(text, "utf8");
+}
+
+function logPerformance(fields) {
+  if (!performanceLogEnabled) return;
+  console.log(`[PERF] ${JSON.stringify({ at: new Date().toISOString(), ...fields })}`);
+}
+
+function runPerformanceMetrics(run) {
+  if (!performanceLogEnabled) return null;
+  run.performanceMetrics ??= {
+    totalEventCount: 0,
+    totalEventBytes: 0,
+    eventTypes: {}
+  };
+  return run.performanceMetrics;
+}
+
+function sendJson(res, status, payload, performanceFields = {}) {
+  const serializationStartedAt = performance.now();
+  const serializedPayload = JSON.stringify(payload);
+  const serializationMilliseconds = performance.now() - serializationStartedAt;
+  const responseBytes = byteLength(serializedPayload);
+  logPerformance({
+    type: "json-response",
+    status,
+    responseBytes,
+    serializationMilliseconds: Number(serializationMilliseconds.toFixed(3)),
+    ...performanceFields
+  });
   res.writeHead(status, {
     "content-type": "application/json; charset=utf-8",
+    "content-length": String(responseBytes),
     "access-control-allow-origin": "*",
     "access-control-allow-methods": "GET,POST,DELETE,OPTIONS",
     "access-control-allow-headers": "content-type,authorization"
   });
-  res.end(JSON.stringify(payload));
+  res.end(serializedPayload);
 }
 
 async function readJsonBody(req) {
@@ -136,14 +169,48 @@ function appendEvent(run, type, data = {}) {
     at: new Date().toISOString(),
     data
   };
+  const serializedEvent = JSON.stringify(event);
+  const eventBytes = byteLength(serializedEvent);
+  const performanceMetrics = runPerformanceMetrics(run);
+  if (performanceMetrics) {
+    performanceMetrics.totalEventCount += 1;
+    performanceMetrics.totalEventBytes += eventBytes;
+    const eventTypeMetrics = performanceMetrics.eventTypes[type] || { count: 0, bytes: 0 };
+    performanceMetrics.eventTypes[type] = {
+      count: eventTypeMetrics.count + 1,
+      bytes: eventTypeMetrics.bytes + eventBytes
+    };
+  }
   run.events.push(event);
   if (run.events.length > maxReplayEvents) run.events.splice(0, run.events.length - maxReplayEvents);
   if (type !== "token" && type !== "raw" && type !== "raw-delta") persistRunArtifacts(run);
   for (const res of run.clients) {
     res.write(`id: ${event.id}\n`);
     res.write(`event: ${type}\n`);
-    res.write(`data: ${JSON.stringify(event)}\n\n`);
+    res.write(`data: ${serializedEvent}\n\n`);
   }
+}
+
+function logTerminalRunPerformance(run, status) {
+  const performanceMetrics = runPerformanceMetrics(run);
+  if (!performanceMetrics) return;
+  const largestEventType = Object.entries(performanceMetrics.eventTypes)
+    .sort(([, left], [, right]) => right.bytes - left.bytes)[0];
+  logPerformance({
+    type: "run-terminal",
+    runId: run.id,
+    status,
+    totalEventCount: performanceMetrics.totalEventCount,
+    totalEventBytes: performanceMetrics.totalEventBytes,
+    replayEventCount: run.events.length,
+    resultCount: run.results.length,
+    largestEventType: largestEventType ? largestEventType[0] : null,
+    largestEventTypeBytes: largestEventType ? largestEventType[1].bytes : 0,
+    tokenEventCount: performanceMetrics.eventTypes.token?.count || 0,
+    tokenEventBytes: performanceMetrics.eventTypes.token?.bytes || 0,
+    memoryRssBytes: process.memoryUsage().rss,
+    memoryHeapUsedBytes: process.memoryUsage().heapUsed
+  });
 }
 
 async function callModel(run, problem, index, context = {}) {
@@ -590,6 +657,7 @@ async function runHumanEval(run) {
     run.activeTaskIds = [];
     run.currentTaskId = null;
     appendEvent(run, "done", { summary: runSummary(run, { includeResults: false }) });
+    logTerminalRunPerformance(run, run.status);
     persistRunArtifacts(run);
   } catch (error) {
     run.status = run.cancelled ? "cancelled" : "error";
@@ -597,6 +665,7 @@ async function runHumanEval(run) {
     run.activeTaskIds = [];
     run.currentTaskId = null;
     appendEvent(run, "error", { message: error instanceof Error ? error.message : String(error), summary: runSummary(run, { includeResults: false }) });
+    logTerminalRunPerformance(run, run.status);
     persistRunArtifacts(run);
   }
 }
@@ -743,12 +812,12 @@ const server = createServer(async (req, res) => {
       const summaries = [...runs.values()]
         .map((run) => runSummary(run, { includeResults: false }))
         .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-      return sendJson(res, 200, { runs: summaries });
+      return sendJson(res, 200, { runs: summaries }, { endpoint: "list-runs", runCount: summaries.length });
     }
     if (req.method === "POST" && url.pathname === "/api/humaneval/runs") {
       const body = await readJsonBody(req);
       const run = await createRun(body);
-      return sendJson(res, 201, runSummary(run));
+      return sendJson(res, 201, runSummary(run), { endpoint: "create-run", runId: run.id, resultCount: run.results.length });
     }
     const runMatch = url.pathname.match(/^\/api\/humaneval\/runs\/([^/]+)(?:\/(events|cancel|resume))?$/);
     if (runMatch) {
@@ -766,7 +835,14 @@ const server = createServer(async (req, res) => {
         if (run.dir) await fs.rm(run.dir, { recursive: true, force: true });
         return sendJson(res, 200, { ok: true });
       }
-      if (req.method === "GET" && !runMatch[2]) return sendJson(res, 200, { ...runSummary(run), events: run.events });
+      if (req.method === "GET" && !runMatch[2]) {
+        return sendJson(res, 200, { ...runSummary(run), events: run.events }, {
+          endpoint: "get-run",
+          runId: run.id,
+          resultCount: run.results.length,
+          eventCount: run.events.length
+        });
+      }
       if (req.method === "POST" && runMatch[2] === "cancel") {
         run.cancelled = true;
         if (run.status === "queued") {

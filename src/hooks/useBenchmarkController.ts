@@ -41,11 +41,19 @@ import {
   taskGroupsFromRun,
   tokensByAttempt as deriveTokensByAttempt
 } from "../domain/tasks";
+import {
+  initializeBrowserPerformanceMetrics,
+  jsonByteLength,
+  performanceDebugIsEnabled,
+  recordSelectedRunFetchMeasurement,
+  recordStateMeasurement
+} from "../domain/performanceMetrics";
 import { useRunEvents } from "./useRunEvents";
 import { useBenchForm } from "./useBenchForm";
 
 export function useBenchmarkController() {
   const initialRoute = useMemo(() => readBenchRoute(), []);
+  const performanceMetricsEnabled = useMemo(() => performanceDebugIsEnabled(window), []);
   const form = useBenchForm();
   const {
     baseUrl, apiKey, model, maxTokens, timeoutSeconds, parallelTasks,
@@ -111,6 +119,24 @@ export function useBenchmarkController() {
     () => taskGroupsFromRun(events, selectedRun, tokensByAttempt, promptInfoByAttempt),
     [events, promptInfoByAttempt, selectedRun, tokensByAttempt]
   );
+
+  useEffect(() => {
+    initializeBrowserPerformanceMetrics(performanceMetricsEnabled, window);
+  }, [performanceMetricsEnabled]);
+
+  useEffect(() => {
+    if (!performanceMetricsEnabled) return;
+    recordStateMeasurement({
+      runId: selectedRun?.id ?? null,
+      eventCount: events.length,
+      tokenCount: tokens.length,
+      tokensByAttemptCount: tokensByAttempt.size,
+      promptInfoByAttemptCount: promptInfoByAttempt.size,
+      taskGroupCount: taskGroups.length,
+      attemptCount: taskGroups.reduce((totalAttempts, taskGroup) => totalAttempts + taskGroup.attempts.length, 0),
+      openTaskCount: Object.values(expanded).filter(Boolean).length
+    });
+  }, [events.length, expanded, performanceMetricsEnabled, promptInfoByAttempt, selectedRun?.id, taskGroups, tokens.length, tokensByAttempt]);
 
 
   useEffect(() => {
@@ -242,15 +268,28 @@ export function useBenchmarkController() {
       setEvents([]);
       return;
     }
+    const startedAt = performance.now();
     fetch(`${BENCH_API}/api/humaneval/runs/${selectedRunId}`)
       .then(async (response) => {
         const json = await response.json();
         if (!response.ok) throw new Error(json.error || "Failed to load run");
+        const runEvents = (json.events as EventEnvelope[] | undefined) ?? [];
+        const tokenEvents = runEvents.filter((event) => event.type === "token");
+        if (performanceMetricsEnabled) {
+          const contentLength = Number(response.headers.get("content-length"));
+          recordSelectedRunFetchMeasurement({
+            runId: String(json.id || selectedRunId),
+            durationMilliseconds: performance.now() - startedAt,
+            contentLengthBytes: Number.isFinite(contentLength) ? contentLength : null,
+            payloadBytes: jsonByteLength(json),
+            resultCount: Array.isArray(json.results) ? json.results.length : 0,
+            eventCount: runEvents.length,
+            tokenEventCount: tokenEvents.length
+          });
+        }
         setRuns((previous) => updateRunInPlace(previous, json));
         loadRunConfig(json);
         if (statusIsLive(json.status)) connectEvents(json.id);
-        const runEvents = (json.events as EventEnvelope[] | undefined) ?? [];
-        const tokenEvents = runEvents.filter((event) => event.type === "token");
         const latestTaskStartedAtMs = currentTaskStartedAtMs(json, runEvents);
         if (latestTaskStartedAtMs) {
           setTaskStartedAtByRun((previous) => ({ ...previous, [json.id]: latestTaskStartedAtMs }));

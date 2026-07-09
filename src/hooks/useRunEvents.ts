@@ -1,5 +1,6 @@
 import { useEffect, useRef, type Dispatch, type SetStateAction } from "react";
 import { BENCH_API, type BenchRun, type EventEnvelope, type TokenEvent } from "../domain/benchmark";
+import { recordEventSourceMeasurement, textByteLength } from "../domain/performanceMetrics";
 import { updateRunInPlace } from "../domain/runs";
 import { notificationEventIsTerminal } from "../notifications";
 
@@ -26,6 +27,7 @@ export function useRunEvents({
 }: UseRunEventsOptions) {
   const sourcesRef = useRef<Map<string, EventSource>>(new Map());
   const selectedRunIdRef = useRef<string | null>(null);
+  const lastTokenAtByRunRef = useRef<Map<string, number>>(new Map());
 
   useEffect(() => {
     selectedRunIdRef.current = selectedRunId;
@@ -46,7 +48,23 @@ export function useRunEvents({
     const source = new EventSource(`${BENCH_API}/api/humaneval/runs/${runId}/events`);
     sourcesRef.current.set(runId, source);
     const handle = (message: MessageEvent) => {
+      const messageBytes = textByteLength(String(message.data));
       const event = JSON.parse(message.data) as EventEnvelope;
+      let tokenGapMilliseconds: number | null | undefined;
+      if (event.type === "token") {
+        const now = performance.now();
+        const lastTokenAt = lastTokenAtByRunRef.current.get(runId);
+        tokenGapMilliseconds = lastTokenAt === undefined ? null : now - lastTokenAt;
+        lastTokenAtByRunRef.current.set(runId, now);
+      }
+      recordEventSourceMeasurement({
+        runId,
+        eventType: event.type,
+        messageBytes,
+        tokenChannel: event.type === "token" && typeof event.data.channel === "string" ? event.data.channel : undefined,
+        tokenTextBytes: event.type === "token" && typeof event.data.text === "string" ? textByteLength(event.data.text) : undefined,
+        tokenGapMilliseconds
+      });
       const maybeSummary = event.data.summary as BenchRun | undefined;
       if (maybeSummary) {
         rememberLiveRuns([maybeSummary]);

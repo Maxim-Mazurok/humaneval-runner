@@ -66,6 +66,17 @@ with `HUMANEVAL_PORT` if needed:
 HUMANEVAL_PORT=8788 npm run dev:bench
 ```
 
+## Performance Measurement
+
+The app includes debug-only performance instrumentation for diagnosing browser
+memory pressure before changing benchmark behavior. Enable it with
+`?debug=performance` in the browser and `HUMANEVAL_PERFORMANCE_LOG=1` on the
+benchmark server.
+
+See [docs/performance-measurements.md](docs/performance-measurements.md) for the
+measurement workflow, available counters, server log fields, and the intended
+evidence-first optimization process.
+
 ## Running Benchmarks
 
 Use `Limit = 0` to run all 164 HumanEval problems. To run a subset, either set

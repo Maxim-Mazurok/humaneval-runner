@@ -121,6 +121,7 @@ describe("App notifications", () => {
 
   afterEach(() => {
     cleanup();
+    delete window.humanEvalPerformanceMetrics;
     vi.useRealTimers();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
@@ -1043,5 +1044,98 @@ describe("App notifications", () => {
     window.dispatchEvent(new PopStateEvent("popstate"));
     await waitFor(() => expect(modelInput).toHaveValue("history-model"));
     expect(window.location.pathname).toBe("/run/run-1");
+  });
+
+  it("collects performance metrics only when debug performance mode is enabled", async () => {
+    window.history.replaceState(null, "", "/run/run-1?debug=performance");
+    const run = baseRun({
+      id: "run-1",
+      status: "running",
+      model: "metrics-model",
+      startedAt: "2026-06-16T00:00:00.000Z",
+      currentTaskId: "HumanEval/1",
+      activeTaskIds: ["HumanEval/1"]
+    });
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/api/humaneval/runs")) {
+        return jsonResponse({ runs: [run] });
+      }
+      if (url.endsWith("/api/humaneval/runs/run-1")) {
+        return jsonResponse({
+          ...run,
+          events: [
+            {
+              type: "task-started",
+              at: "2026-06-16T00:00:01.000Z",
+              data: {
+                taskId: "HumanEval/1",
+                index: 1,
+                entryPoint: "candidate",
+                prompt: "def candidate(): pass",
+                test: "assert candidate() is None"
+              }
+            }
+          ]
+        });
+      }
+      return jsonResponse({ error: "not found" }, 404);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+
+    await waitFor(() => expect(window.humanEvalPerformanceMetrics?.selectedRunFetches).toHaveLength(1));
+    expect(window.humanEvalPerformanceMetrics?.selectedRunFetches[0]).toMatchObject({
+      runId: "run-1",
+      eventCount: 1,
+      tokenEventCount: 0
+    });
+    await waitFor(() => expect(FakeEventSource.instances.length).toBeGreaterThan(0));
+
+    FakeEventSource.instances[0].emit("token", {
+      type: "token",
+      at: "2026-06-16T00:00:02.000Z",
+      data: {
+        taskId: "HumanEval/1",
+        index: 1,
+        channel: "output",
+        text: "hello"
+      }
+    });
+
+    await waitFor(() => expect(window.humanEvalPerformanceMetrics?.eventSource.eventTypes.token?.count).toBe(1));
+    expect(window.humanEvalPerformanceMetrics?.eventSource.tokenChannels.output.textBytes).toBeGreaterThan(0);
+    expect(window.humanEvalPerformanceMetrics?.state?.runId).toBe("run-1");
+  });
+
+  it("does not expose performance metrics by default", async () => {
+    window.history.replaceState(null, "", "/run/run-1");
+    const run = baseRun({
+      id: "run-1",
+      status: "completed",
+      model: "no-metrics-model",
+      completed: 2,
+      passed: 2,
+      failed: 0,
+      liveScore: 1,
+      finalScore: 1
+    });
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/api/humaneval/runs")) {
+        return jsonResponse({ runs: [run] });
+      }
+      if (url.endsWith("/api/humaneval/runs/run-1")) {
+        return jsonResponse({ ...run, events: [] });
+      }
+      return jsonResponse({ error: "not found" }, 404);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+
+    await waitFor(() => expect(screen.getByPlaceholderText("provider/model-name")).toHaveValue("no-metrics-model"));
+    expect(window.humanEvalPerformanceMetrics).toBeUndefined();
   });
 });
