@@ -591,8 +591,8 @@ describe("App notifications", () => {
     expect(within(variabilityRegion).getByText("Pass 3")).toBeInTheDocument();
     expect(within(variabilityRegion).getByText("Pass 4")).toBeInTheDocument();
     expect(screen.getAllByText("1/1").length).toBeGreaterThan(0);
-    expect(within(variabilityRegion).getByText("avg run 1.1s")).toBeInTheDocument();
-    expect(within(variabilityRegion).getByText("avg run 1.2s")).toBeInTheDocument();
+    expect(within(variabilityRegion).getByText("avg pass 1.1s")).toBeInTheDocument();
+    expect(within(variabilityRegion).getByText("avg pass 1.2s")).toBeInTheDocument();
     expect(container.textContent).toMatch(/Mixed\s*1/);
     expect(screen.getAllByText("HumanEval/0")).toHaveLength(1);
     await userEvent.click(screen.getByRole("button", { name: /HumanEval\/0/i }));
@@ -674,7 +674,7 @@ describe("App notifications", () => {
     expect(within(completedPassesMetric).getByText("1/4")).toBeInTheDocument();
     expect(within(variabilityRegion).getByText("Pass 1")).toBeInTheDocument();
     expect(within(variabilityRegion).getByText("Pass 2 - 4")).toBeInTheDocument();
-    expect(within(variabilityRegion).getByText("avg run 1.0s")).toBeInTheDocument();
+    expect(within(variabilityRegion).getByText("avg pass 1.0s")).toBeInTheDocument();
   });
 
   it("merges task tabs when timing is the only difference and shows a time range", async () => {

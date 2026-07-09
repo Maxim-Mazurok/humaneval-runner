@@ -1,5 +1,7 @@
 import type { ReactNode } from "react";
 
+export type MetricLine = [string, string] | "separator";
+
 export function Metric({
   label,
   value,
@@ -20,15 +22,21 @@ export function Metric({
   );
 }
 
-export function MetricLines({ lines }: { lines: Array<[string, string]> }) {
+export function MetricLines({ lines }: { lines: MetricLine[] }) {
   return (
     <span className="metric-lines">
-      {lines.map(([label, value]) => (
-        <span className="metric-line" key={label}>
-          <span>{label}</span>
-          <b>{value}</b>
-        </span>
-      ))}
+      {lines.map((line, lineIndex) => {
+        if (line === "separator") {
+          return <span className="metric-line-separator" key={`separator-${lineIndex}`} />;
+        }
+        const [label, value] = line;
+        return (
+          <span className="metric-line" key={label}>
+            <span>{label}</span>
+            <b>{value}</b>
+          </span>
+        );
+      })}
     </span>
   );
 }

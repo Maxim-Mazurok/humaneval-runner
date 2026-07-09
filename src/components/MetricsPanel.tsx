@@ -1,13 +1,15 @@
 import { Bell, BellOff, ClipboardCopy } from "lucide-react";
 import type { BenchRun } from "../domain/benchmark";
+import type { CurrentPassTiming } from "../domain/passTiming";
 import { assertionStats, completedMetricLines, normalizeCommentSignalThreshold, pct, statusIsInProgress } from "../domain/runs";
-import { Metric, MetricLines } from "./Metric";
+import { Metric, MetricLines, type MetricLine } from "./Metric";
 
 export function MetricsPanel({
   selectedRun,
   selectedThinkingStats,
   commentSignalThreshold,
   selectedLiveEstimate,
+  selectedPassTiming,
   selectedSpeedStats,
   selectedRunNotificationsEnabled,
   setCommentSignalThreshold,
@@ -19,6 +21,7 @@ export function MetricsPanel({
   selectedThinkingStats: { flagged: number; total: number };
   commentSignalThreshold: number;
   selectedLiveEstimate: { remaining: string; endTime: string } | null;
+  selectedPassTiming: CurrentPassTiming | null;
   selectedSpeedStats: { averageTask: string; bench: string };
   selectedRunNotificationsEnabled: boolean;
   setCommentSignalThreshold: (value: number) => void;
@@ -72,13 +75,10 @@ export function MetricsPanel({
       {statusIsInProgress(selectedRun?.status) ? (
         <Metric
           label="ETA"
-          value={selectedLiveEstimate
+          value={etaMetricLines(selectedLiveEstimate, selectedPassTiming).length
             ? (
                 <MetricLines
-                  lines={[
-                    ["Duration", `~${selectedLiveEstimate.remaining}`],
-                    ["Time", selectedLiveEstimate.endTime]
-                  ]}
+                  lines={etaMetricLines(selectedLiveEstimate, selectedPassTiming)}
                 />
               )
             : "Estimating..."}
@@ -102,4 +102,21 @@ export function MetricsPanel({
       />
     </section>
   );
+}
+
+function etaMetricLines(
+  selectedLiveEstimate: { remaining: string; endTime: string } | null,
+  selectedPassTiming: CurrentPassTiming | null
+) {
+  const lines: MetricLine[] = [];
+  if (selectedLiveEstimate) {
+    lines.push(["Total duration", `~${selectedLiveEstimate.remaining}`], ["Total time", selectedLiveEstimate.endTime]);
+  }
+  if (selectedLiveEstimate && selectedPassTiming?.remaining && selectedPassTiming.endTime) {
+    lines.push("separator");
+  }
+  if (selectedPassTiming?.remaining && selectedPassTiming.endTime) {
+    lines.push(["Pass duration", `~${selectedPassTiming.remaining}`], ["Pass time", selectedPassTiming.endTime]);
+  }
+  return lines;
 }

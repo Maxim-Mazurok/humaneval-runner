@@ -19,6 +19,7 @@ import {
   type TokenEvent
 } from "../domain/benchmark";
 import { thinkingInCommentsStats, thinkingResultNumbers } from "../domain/comments";
+import { currentPassTiming } from "../domain/passTiming";
 import {
   currentTaskStartedAtMs,
   formatTime,
@@ -94,6 +95,10 @@ export function useBenchmarkController() {
   const selectedTaskStartedAtMs = selectedRun?.id ? taskStartedAtByRun[selectedRun.id] : null;
   const selectedLiveEstimate = useMemo(
     () => liveEstimate(selectedRun, events, nowMs, selectedTaskStartedAtMs),
+    [events, nowMs, selectedRun, selectedTaskStartedAtMs]
+  );
+  const selectedPassTiming = useMemo(
+    () => currentPassTiming(selectedRun, events, nowMs, selectedTaskStartedAtMs),
     [events, nowMs, selectedRun, selectedTaskStartedAtMs]
   );
   const selectedSpeedStats = useMemo(
@@ -426,6 +431,7 @@ export function useBenchmarkController() {
     selectedThinkingStats,
     selectedRunNotificationsEnabled,
     selectedLiveEstimate,
+    selectedPassTiming,
     selectedSpeedStats,
     tokensByAttempt,
     promptInfoByAttempt,

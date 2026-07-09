@@ -30,6 +30,7 @@ export default function App() {
     selectedThinkingStats,
     selectedRunNotificationsEnabled,
     selectedLiveEstimate,
+    selectedPassTiming,
     selectedSpeedStats,
     tokensByAttempt,
     promptInfoByAttempt,
@@ -134,6 +135,7 @@ export default function App() {
           selectedThinkingStats={selectedThinkingStats}
           commentSignalThreshold={commentSignalThreshold}
           selectedLiveEstimate={selectedLiveEstimate}
+          selectedPassTiming={selectedPassTiming}
           selectedSpeedStats={selectedSpeedStats}
           selectedRunNotificationsEnabled={selectedRunNotificationsEnabled}
           setCommentSignalThreshold={setCommentSignalThreshold}
@@ -141,7 +143,7 @@ export default function App() {
           onCopyThinkingNumbers={copyThinkingNumbers}
           onToggleNotifications={toggleNotificationsForRun}
         />
-        <PassVariabilityChart run={selectedRun} />
+        <PassVariabilityChart run={selectedRun} currentPass={selectedPassTiming} />
         <TaskResults
           taskGroups={taskGroups}
           selectedRun={selectedRun}

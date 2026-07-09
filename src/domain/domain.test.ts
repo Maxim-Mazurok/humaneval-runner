@@ -13,6 +13,7 @@ import {
   passRangeLabel,
   passVariabilityStats
 } from "./passes";
+import { currentPassTiming } from "./passTiming";
 import { buildInstructionPromptFallback, formatPromptMessages } from "./prompts";
 import {
   assertionStats,
@@ -119,6 +120,11 @@ describe("run domain helpers", () => {
       ["2nd pass:", "0% (0/2)"]
     ]);
     expect(liveEstimate(running, events, nowMs)?.remaining).toBe("20s");
+    expect(currentPassTiming(running, events, nowMs)).toMatchObject({
+      passNumber: 2,
+      elapsed: "5.0s",
+      remaining: "5s"
+    });
     expect(speedStats(running, events, nowMs)).toEqual({ averageTask: "15s", bench: "~1m 0s" });
   });
 });

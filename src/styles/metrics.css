@@ -69,6 +69,13 @@
   overflow-wrap: anywhere;
 }
 
+.metric-line-separator {
+  display: block;
+  height: 1px;
+  margin: 2px 0;
+  background: var(--line);
+}
+
 .metric-action {
   display: inline-flex;
   align-items: center;
