@@ -13,6 +13,7 @@ import {
   redactApiKey,
   runSummary
 } from "./domain.mjs";
+import { fetchModelResponseWithRetry, throwIfRetryableModelOutput } from "./modelRetry.mjs";
 
 function sendJson(res, status, payload) {
   res.writeHead(status, {
@@ -91,12 +92,31 @@ export function createBenchmarkServer({
         });
         const messages = buildPromptMessages(problem, run.systemPrompt, run.promptTemplate);
         appendEvent(run, "prompt", { taskId: problem.task_id, attemptId, passNumber, index, messages });
-        const modelResponse = await fetchImpl(`${run.baseUrl}/chat/completions`, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ model: run.model, messages, stream: true, temperature: run.temperature, max_tokens: run.maxTokens })
+        const rawOutput = await fetchModelResponseWithRetry({
+          fetchImplementation: fetchImpl,
+          requestUrl: `${run.baseUrl}/chat/completions`,
+          requestOptions: {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ model: run.model, messages, stream: true, temperature: run.temperature, max_tokens: run.maxTokens })
+          },
+          processResponse: async (response) => {
+            const modelOutput = await readModelText(response);
+            throwIfRetryableModelOutput(modelOutput);
+            return modelOutput;
+          },
+          onRetry: ({ attemptNumber, errorMessage, retryDelayMilliseconds }) => {
+            appendEvent(run, "model-retry", {
+              taskId: problem.task_id,
+              attemptId,
+              passNumber,
+              index,
+              attemptNumber,
+              error: errorMessage,
+              retryDelayMilliseconds
+            });
+          }
         });
-        const rawOutput = await readModelText(modelResponse);
         const extractedCode = extractCode(rawOutput, problem.prompt);
         const testResult = await executeTests(problem, extractedCode, run.timeoutSeconds);
         const result = {

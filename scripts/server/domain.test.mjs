@@ -16,7 +16,8 @@ import {
   parseTestNumbers,
   redactApiKey,
   runtimeConfigFromPersistedRun,
-  runSummary
+  runSummary,
+  syncRunCountsFromResults
 } from "./domain.mjs";
 
 let tempDirs = [];
@@ -118,6 +119,16 @@ describe("server domain helpers", () => {
     expect(compact.tests).toHaveLength(1);
   });
 
+  it("derives summary counts from results instead of cached run counts", () => {
+    const run = runFixture({ completed: 463, passed: 315, failed: 148 });
+
+    expect(runSummary(run)).toMatchObject({ completed: 1, passed: 1, failed: 0, liveScore: 1, finalScore: 1 });
+
+    syncRunCountsFromResults(run);
+
+    expect(run).toMatchObject({ completed: 1, passed: 1, failed: 0 });
+  });
+
   it("redacts api keys for persisted public run config", () => {
     expect(redactApiKey(" sk-live-secret ")).toBe("***");
     expect(redactApiKey("")).toBe("");
@@ -212,13 +223,25 @@ describe("server domain helpers", () => {
   it("writes run and result artifacts with public run state", async () => {
     const dir = await fs.mkdtemp(join(tmpdir(), "humaneval-artifacts-"));
     tempDirs.push(dir);
-    const run = runFixture({ publicConfig: { apiKey: "***", maxTokens: 2048, testNumbers: "0" } });
+    const run = runFixture({
+      completed: 463,
+      passed: 315,
+      failed: 148,
+      publicConfig: { apiKey: "***", maxTokens: 2048, testNumbers: "0" }
+    });
 
     await writeRunArtifacts(run, dir);
 
     const runJson = JSON.parse(await fs.readFile(join(run.dir, "run.json"), "utf8"));
     const resultsJson = JSON.parse(await fs.readFile(join(run.dir, "results.json"), "utf8"));
-    expect(runJson).toMatchObject({ id: "run-1", results: [], config: { apiKey: "***", testNumbers: "0" } });
+    expect(runJson).toMatchObject({
+      id: "run-1",
+      completed: 1,
+      passed: 1,
+      failed: 0,
+      results: [],
+      config: { apiKey: "***", testNumbers: "0" }
+    });
     expect(resultsJson).toHaveLength(1);
     expect(resultsJson[0].rawOutput).toContain("```python");
   });

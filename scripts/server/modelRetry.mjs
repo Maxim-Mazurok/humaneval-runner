@@ -1,12 +1,31 @@
 const defaultInitialRetryDelayMilliseconds = 1000;
 const defaultMaximumRetryDelayMilliseconds = 30 * 1000;
+const requestAbortedMarker = "Request aborted";
+
+class RetryableModelResponseError extends Error {}
 
 export function modelErrorMessage(error) {
   return error instanceof Error ? error.message : String(error);
 }
 
 export function isRetryableModelFetchError(error) {
-  return modelErrorMessage(error).includes("fetch failed");
+  return error instanceof RetryableModelResponseError || modelErrorMessage(error).includes("fetch failed");
+}
+
+export function throwIfRetryableModelOutput(...outputs) {
+  const abortedOutput = outputs.find((output) => output.includes(requestAbortedMarker));
+  if (!abortedOutput) return;
+
+  const markerStartIndex = abortedOutput.indexOf(requestAbortedMarker);
+  const lineStartIndex = abortedOutput.lastIndexOf("\n", markerStartIndex) + 1;
+  const lineEndIndex = abortedOutput.indexOf("\n", markerStartIndex);
+  const errorOutput = abortedOutput.slice(lineStartIndex, lineEndIndex < 0 ? undefined : lineEndIndex).trim();
+  throw new RetryableModelResponseError(`Model request failed: ${errorOutput}`);
+}
+
+async function createRetryableModelResponseError(response) {
+  const responseText = await response.text().catch(() => "");
+  return new RetryableModelResponseError(`Model request failed: HTTP ${response.status} ${responseText.slice(0, 1000)}`);
 }
 
 function createAbortError() {
@@ -43,6 +62,7 @@ export async function fetchModelResponseWithRetry({
   signal,
   shouldStop = () => false,
   onRetry = () => {},
+  processResponse = (response) => response,
   initialRetryDelayMilliseconds = defaultInitialRetryDelayMilliseconds,
   maximumRetryDelayMilliseconds = defaultMaximumRetryDelayMilliseconds
 }) {
@@ -51,7 +71,11 @@ export async function fetchModelResponseWithRetry({
 
   while (true) {
     try {
-      return await fetchImplementation(requestUrl, requestOptions);
+      const response = await fetchImplementation(requestUrl, requestOptions);
+      if (response.status === 507) {
+        throw await createRetryableModelResponseError(response);
+      }
+      return await processResponse(response);
     } catch (error) {
       if (signal?.aborted || shouldStop() || !isRetryableModelFetchError(error)) {
         throw error;

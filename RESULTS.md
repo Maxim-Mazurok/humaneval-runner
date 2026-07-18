@@ -15,3 +15,8 @@ Conclusions:
 ## gemma-4-12B
 
 97% - 8192 thinking, 16384 tokens, 1 pass, gemma-4-12B-it-8bit, 23h33m
+96.3% - 8192 thinking, 16384 tokens, 1 pass, gemma-4-12B-it-8bit, 23h (partly using speculative decoding, hence the speedup iirc)
+
+## Qwen3.6-27B
+
+98.8% - 8192 thinking, 16384 tokens, 1 pass, Qwen3.6-27B-MLX-6bit, 24h8m

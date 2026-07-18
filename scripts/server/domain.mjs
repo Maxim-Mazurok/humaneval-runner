@@ -50,6 +50,7 @@ export function compactResult(result) {
 }
 
 export function runSummary(run, { includeResults = true } = {}) {
+  const { completed, passed, failed } = runCountsFromResults(run.results);
   const assertionsTotal = run.results.reduce((sum, result) => sum + (result.tests?.length || 0), 0);
   const assertionsPassed = run.results.reduce(
     (sum, result) => sum + (result.tests || []).filter((test) => test.passed).length,
@@ -64,11 +65,11 @@ export function runSummary(run, { includeResults = true } = {}) {
     startedAt: run.startedAt,
     finishedAt: run.finishedAt,
     total: run.total,
-    completed: run.completed,
-    passed: run.passed,
-    failed: run.failed,
-    liveScore: run.completed ? run.passed / run.completed : 0,
-    finalScore: run.total ? run.passed / run.total : null,
+    completed,
+    passed,
+    failed,
+    liveScore: completed ? passed / completed : 0,
+    finalScore: run.total ? passed / run.total : null,
     assertionsPassed,
     assertionsTotal,
     assertionScore: assertionsTotal ? assertionsPassed / assertionsTotal : 0,
@@ -125,10 +126,17 @@ export function eventAttemptId(event) {
   return `${taskId}::pass-${event.data.passNumber || 1}`;
 }
 
+export function runCountsFromResults(results = []) {
+  const completed = results.length;
+  const passed = results.filter((result) => result.passed).length;
+  return { completed, passed, failed: completed - passed };
+}
+
 export function syncRunCountsFromResults(run) {
-  run.completed = run.results.length;
-  run.passed = run.results.filter((result) => result.passed).length;
-  run.failed = run.completed - run.passed;
+  const { completed, passed, failed } = runCountsFromResults(run.results);
+  run.completed = completed;
+  run.passed = passed;
+  run.failed = failed;
 }
 
 const resumeDiscardEventTypes = new Set(["token", "raw", "raw-delta", "code-extracted"]);

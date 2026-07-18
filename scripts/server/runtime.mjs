@@ -26,7 +26,7 @@ import {
   runSummary,
   syncRunCountsFromResults
 } from "./domain.mjs";
-import { fetchModelResponseWithRetry } from "./modelRetry.mjs";
+import { fetchModelResponseWithRetry, throwIfRetryableModelOutput } from "./modelRetry.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const rootDir = join(__dirname, "../..");
@@ -213,6 +213,61 @@ function logTerminalRunPerformance(run, status) {
   });
 }
 
+async function readModelResponse(response, run, problem, index, context, started) {
+  if (!response.ok || !response.body) {
+    const text = await response.text().catch(() => "");
+    throw new Error(`Model request failed: HTTP ${response.status} ${text.slice(0, 1000)}`);
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let output = "";
+  let thinking = "";
+  let transcript = "";
+  let raw = "";
+  let usage = null;
+  let finishReason = null;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const frames = buffer.split("\n\n");
+    buffer = frames.pop() ?? "";
+    for (const frame of frames) {
+      for (const line of frame.split("\n")) {
+        if (!line.startsWith("data:")) continue;
+        const payload = line.slice(5).trim();
+        if (!payload || payload === "[DONE]") continue;
+        raw += `${payload}\n`;
+        let parsed;
+        try {
+          parsed = JSON.parse(payload);
+        } catch {
+          appendEvent(run, "raw", { taskId: problem.task_id, index, ...context, text: payload });
+          continue;
+        }
+        if (parsed.usage) usage = parsed.usage;
+        const choice = parsed.choices?.[0];
+        if (choice?.finish_reason) finishReason = choice.finish_reason;
+        const delta = choice?.delta ?? {};
+        const parts = extractTextFromDelta(delta);
+        for (const part of parts) {
+          transcript += part.text;
+          if (part.channel === "output") output += part.text;
+          if (part.channel === "thinking") thinking += part.text;
+          appendEvent(run, "token", { taskId: problem.task_id, index, ...context, ...part });
+        }
+        if (!parts.length && Object.keys(delta).length) {
+          appendEvent(run, "raw-delta", { taskId: problem.task_id, index, ...context, delta });
+        }
+      }
+    }
+  }
+  throwIfRetryableModelOutput(thinking, output);
+  return { output, thinking, transcript, raw, usage, finishReason, elapsedMs: Date.now() - started };
+}
+
 async function callModel(run, problem, index, context = {}) {
   const controller = new AbortController();
   run.abortControllers ??= new Set();
@@ -232,7 +287,7 @@ async function callModel(run, problem, index, context = {}) {
   appendEvent(run, "prompt", { taskId: problem.task_id, index, ...context, messages, request: { ...body, messages } });
   const started = Date.now();
   try {
-    const response = await fetchModelResponseWithRetry({
+    return await fetchModelResponseWithRetry({
       fetchImplementation: fetch,
       requestUrl: `${run.baseUrl}/chat/completions`,
       requestOptions: {
@@ -246,61 +301,11 @@ async function callModel(run, problem, index, context = {}) {
       },
       signal: controller.signal,
       shouldStop: () => run.cancelled,
+      processResponse: (response) => readModelResponse(response, run, problem, index, context, started),
       onRetry: ({ attemptNumber, errorMessage, retryDelayMilliseconds }) => {
         appendEvent(run, "model-retry", { taskId: problem.task_id, index, ...context, attemptNumber, error: errorMessage, retryDelayMilliseconds });
       }
     });
-    if (!response.ok || !response.body) {
-      const text = await response.text().catch(() => "");
-      throw new Error(`Model request failed: HTTP ${response.status} ${text.slice(0, 1000)}`);
-    }
-
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-    let output = "";
-    let thinking = "";
-    let transcript = "";
-    let raw = "";
-    let usage = null;
-    let finishReason = null;
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const frames = buffer.split("\n\n");
-      buffer = frames.pop() ?? "";
-      for (const frame of frames) {
-        for (const line of frame.split("\n")) {
-          if (!line.startsWith("data:")) continue;
-          const payload = line.slice(5).trim();
-          if (!payload || payload === "[DONE]") continue;
-          raw += `${payload}\n`;
-          let parsed;
-          try {
-            parsed = JSON.parse(payload);
-          } catch {
-            appendEvent(run, "raw", { taskId: problem.task_id, index, ...context, text: payload });
-            continue;
-          }
-          if (parsed.usage) usage = parsed.usage;
-          const choice = parsed.choices?.[0];
-          if (choice?.finish_reason) finishReason = choice.finish_reason;
-          const delta = choice?.delta ?? {};
-          const parts = extractTextFromDelta(delta);
-          for (const part of parts) {
-            transcript += part.text;
-            if (part.channel === "output") output += part.text;
-            if (part.channel === "thinking") thinking += part.text;
-            appendEvent(run, "token", { taskId: problem.task_id, index, ...context, ...part });
-          }
-          if (!parts.length && Object.keys(delta).length) {
-            appendEvent(run, "raw-delta", { taskId: problem.task_id, index, ...context, delta });
-          }
-        }
-      }
-    }
-    return { output, thinking, transcript, raw, usage, finishReason, elapsedMs: Date.now() - started };
   } finally {
     run.abortControllers?.delete(controller);
     if (run.abortController === controller) run.abortController = null;
@@ -749,6 +754,7 @@ function runCanResume(run) {
 }
 
 function resumeRun(run) {
+  syncRunCountsFromResults(run);
   if (!runCanResume(run)) {
     throw new Error("Run cannot be resumed.");
   }
@@ -789,6 +795,7 @@ async function loadPersistedRuns() {
         abortController: null,
         abortControllers: new Set()
       };
+      syncRunCountsFromResults(run);
       if (run.status === "running" || run.status === "queued") {
         run.status = "interrupted";
         run.finishedAt = run.finishedAt || new Date().toISOString();
