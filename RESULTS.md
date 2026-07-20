@@ -23,8 +23,9 @@ Conclusions:
 
 98.8% - 8192 thinking, 16384 tokens, 1 pass, Qwen3.6-27B-MXFP4, 10h27m (failed: 134 (didn't handle edge case correctly, pretty clearly wrong assumption), 145) (#94 failed if extracting code from thinking)
 98.8% - 8192 thinking, 16384 tokens, 1 pass, Qwen3.6-27B-MLX-6bit, 24h8m (failed: 32 (luck-based solution), 145 (tricky requirement misinterpretation); 2nd incomplete pass: 145)
-[WIP xx/164] xx.x% - 8192 thinking, 16384 tokens, 1 pass, Qwen3.5-27B-Claude-4.6-Opus-Distilled-MLX-4bit, XhXm (failed: 32 (infinite loop), 41 (comment parsed as code))
+[WIP 54/164 32.9-98.8%] 96.4% - 8192 thinking, 16384 tokens, 1 pass, Qwen3.5-27B-Claude-4.6-Opus-Distilled-MLX-4bit, 1h27m (failed: 32 (infinite loop), 41 (comment parsed as code))
 
 Conclusions:
 - Qwen3.6-27B is a very strong model
 - MXFP4 runs 2.5x faster than 6bit and fits much more comfortably on the 32GB MBP M5, same eval accuracy
+- Opus-Distilled lower accuracy than base, might be more clever on math since that is what it was distilled on for the most part

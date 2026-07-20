@@ -797,7 +797,9 @@ async function loadPersistedRuns() {
   await fs.mkdir(runsDir, { recursive: true });
   const entries = await fs.readdir(runsDir, { withFileTypes: true }).catch(() => []);
   for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
+    // Migration backups live beneath the runs directory but are not runs.
+    // Ignore all hidden directories so they are not treated as persisted runs.
+    if (!entry.isDirectory() || entry.name.startsWith(".")) continue;
     const dir = join(runsDir, entry.name);
     try {
       const raw = await fs.readFile(join(dir, "run.json"), "utf8");
