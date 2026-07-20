@@ -212,6 +212,7 @@ export type PassVariabilityStats = {
     fullyCompleted: boolean;
   }>;
   passTotal: number;
+  tasksPerPass: number;
   completedPassCount: number;
   minScore: number;
   maxScore: number;

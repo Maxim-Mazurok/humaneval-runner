@@ -85,6 +85,7 @@ export function passVariabilityStats(run?: BenchRun | null): PassVariabilityStat
   return {
     passRows: sortedPassRows,
     passTotal,
+    tasksPerPass,
     completedPassCount: spreadRows.length,
     minScore: scores.length ? Math.min(...scores) : 0,
     maxScore: scores.length ? Math.max(...scores) : 0,
@@ -95,6 +96,17 @@ export function passVariabilityStats(run?: BenchRun | null): PassVariabilityStat
       mixed,
       allFail
     }
+  };
+}
+
+export function passPossibleScoreRange(row: { completed: number; passed: number }, tasksPerPass: number) {
+  const total = Math.max(1, Math.floor(tasksPerPass));
+  const completed = Math.min(Math.max(row.completed, 0), total);
+  const passed = Math.min(Math.max(row.passed, 0), completed);
+  const remaining = total - completed;
+  return {
+    worst: passed / total,
+    best: (passed + remaining) / total
   };
 }
 

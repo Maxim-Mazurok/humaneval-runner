@@ -1,7 +1,12 @@
 import type { BenchRun } from "../domain/benchmark";
 import type { CurrentPassTiming } from "../domain/passTiming";
 import { passGroupTimeLabel } from "../domain/passTiming";
-import { groupSequentialChartPasses, passRangeLabel, passVariabilityStats } from "../domain/passes";
+import {
+  groupSequentialChartPasses,
+  passPossibleScoreRange,
+  passRangeLabel,
+  passVariabilityStats
+} from "../domain/passes";
 import { pct } from "../domain/runs";
 
 export function PassVariabilityChart({ run, currentPass }: { run: BenchRun | null; currentPass: CurrentPassTiming | null }) {
@@ -53,17 +58,34 @@ export function PassVariabilityChart({ run, currentPass }: { run: BenchRun | nul
               : "Pass scores are pending completed passes."
             }
           >
-            {chartPassGroups.map((group) => (
-              <div className="pass-chart-row" key={group.key}>
-                <span>{passRangeLabel(group.startPass, group.endPass, stats.passTotal)}</span>
-                <div className="pass-bar-track" aria-hidden="true">
-                  <i style={{ width: `${group.row.score * 100}%` }} />
+            {chartPassGroups.map((group) => {
+              const isCurrentPass = currentPass
+                && currentPass.passNumber >= group.startPass
+                && currentPass.passNumber <= group.endPass;
+              const possibleRange = isCurrentPass && group.row.completed > 0 && !group.row.fullyCompleted
+                ? passPossibleScoreRange(group.row, stats.tasksPerPass)
+                : null;
+              const possibleRangeLabel = possibleRange
+                ? `Possible range: ${pct(possibleRange.worst)}-${pct(possibleRange.best)}`
+                : undefined;
+
+              return (
+                <div className="pass-chart-row" key={group.key}>
+                  <span>{passRangeLabel(group.startPass, group.endPass, stats.passTotal)}</span>
+                  <div className="pass-bar-track" aria-hidden="true">
+                    <i style={{ width: `${group.row.score * 100}%` }} />
+                  </div>
+                  <b
+                    className={possibleRange ? "pass-chart-score-in-progress" : undefined}
+                    title={possibleRangeLabel}
+                  >
+                    {group.row.completed ? pct(group.row.score) : "pending"}
+                  </b>
+                  <small>{group.row.completed ? `${group.row.passed}/${group.row.completed}` : "0/0"}</small>
+                  <small className="pass-chart-time">{passGroupTimeLabel(group, currentPass)}</small>
                 </div>
-                <b>{group.row.completed ? pct(group.row.score) : "pending"}</b>
-                <small>{group.row.completed ? `${group.row.passed}/${group.row.completed}` : "0/0"}</small>
-                <small className="pass-chart-time">{passGroupTimeLabel(group, currentPass)}</small>
-              </div>
-            ))}
+              );
+            })}
           </div>
         ) : (
           <p className="empty-copy">

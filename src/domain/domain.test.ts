@@ -10,6 +10,7 @@ import {
 import {
   groupSequentialChartPasses,
   groupSequentialPasses,
+  passPossibleScoreRange,
   passRangeLabel,
   passVariabilityStats
 } from "./passes";
@@ -194,6 +195,7 @@ describe("pass and task derivation", () => {
     expect(stats.spreadPassCount).toBe(1);
     expect(stats.minScore).toBe(1);
     expect(stats.maxScore).toBe(1);
+    expect(passPossibleScoreRange(stats.passRows[1], stats.tasksPerPass)).toEqual({ worst: 0, best: 0.5 });
     expect(chartGroups[0].averagePassDurationMilliseconds).toBe(3000);
     expect(chartGroups[1].averagePassDurationMilliseconds).toBeNull();
   });

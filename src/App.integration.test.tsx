@@ -677,6 +677,63 @@ describe("App notifications", () => {
     expect(within(variabilityRegion).getByText("avg pass 1.0s")).toBeInTheDocument();
   });
 
+  it("shows the possible score range when hovering the current in-progress pass percentage", async () => {
+    window.history.replaceState(null, "", "/run/run-1");
+    const inProgressRun = baseRun({
+      status: "running",
+      total: 8,
+      completed: 3,
+      passed: 2,
+      failed: 1,
+      liveScore: 2 / 3,
+      currentTaskId: "HumanEval/3",
+      activeTaskIds: ["HumanEval/3"],
+      config: { passCount: 2 },
+      results: Array.from({ length: 3 }, (_, index) => ({
+        taskId: `HumanEval/${index}`,
+        attemptId: `HumanEval/${index}::pass-1`,
+        passNumber: 1,
+        passTotal: 2,
+        index,
+        entryPoint: "foo",
+        passed: index < 2,
+        tests: [],
+        prompt: "def foo(): pass",
+        test: "assert foo()",
+        rawOutput: "output",
+        extractedCode: "def foo(): return 1",
+        generationMs: 1000
+      })),
+      events: [{
+        type: "task-started",
+        at: "2026-06-16T00:00:03.000Z",
+        data: {
+          taskId: "HumanEval/3",
+          attemptId: "HumanEval/3::pass-1",
+          passNumber: 1,
+          passTotal: 2,
+          index: 3,
+          entryPoint: "foo"
+        }
+      }]
+    } as Partial<RunFixture>);
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/api/humaneval/runs")) {
+        return jsonResponse({ runs: [inProgressRun] });
+      }
+      return jsonResponse(inProgressRun);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+
+    await screen.findByText("HumanEval/0");
+    const variabilityRegion = screen.getByRole("region", { name: /pass variability/i });
+    expect(within(variabilityRegion).getByText("66.7%"))
+      .toHaveAttribute("title", "Possible range: 50%-75%");
+  });
+
   it("merges task tabs when timing is the only difference and shows a time range", async () => {
     window.history.replaceState(null, "", "/run/run-1");
     const groupedTaskRun = baseRun({

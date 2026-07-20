@@ -87,6 +87,10 @@
   font-weight: 900;
 }
 
+.pass-chart-score-in-progress {
+  cursor: help;
+}
+
 .pass-bar-track {
   height: 18px;
   overflow: hidden;
