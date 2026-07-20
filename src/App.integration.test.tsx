@@ -385,7 +385,7 @@ describe("App notifications", () => {
     await waitFor(() => expect(screen.queryByText(/old stale output/i)).not.toBeInTheDocument());
   });
 
-  it("only shows the ETA metric for runs that are in progress", async () => {
+  it("only shows the remaining metric for runs that are in progress", async () => {
     const completedRun = baseRun({
       status: "completed",
       completed: 2,
@@ -422,11 +422,11 @@ describe("App notifications", () => {
     render(<App />);
 
     await screen.findByRole("button", { name: /completed.*demo-model|demo-model.*completed/i });
-    expect(screen.queryByText("ETA")).not.toBeInTheDocument();
+    expect(screen.queryByText("Remaining")).not.toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: /running.*demo-model|demo-model.*running/i }));
 
-    await waitFor(() => expect(screen.getByText("ETA")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Remaining")).toBeInTheDocument());
     expect(screen.getByRole("button", { name: /disable finish notification/i })).toBeInTheDocument();
   });
 
@@ -845,7 +845,7 @@ describe("App notifications", () => {
     expect(screen.getAllByRole("tab")).toHaveLength(1);
   });
 
-  it("shows speed total as a projected full benchmark duration while running", async () => {
+  it("shows elapsed and expected total duration while running", async () => {
     const startedAt = new Date(Date.now() - 25_000).toISOString();
     const runningRun = baseRun({
       status: "running",
@@ -900,11 +900,13 @@ describe("App notifications", () => {
     const speedMetric = screen.getByText("Speed").closest(".bench-metric") as HTMLElement;
     expect(within(speedMetric).getByText("Per task")).toBeInTheDocument();
     expect(within(speedMetric).getByText("10s")).toBeInTheDocument();
-    expect(within(speedMetric).getByText("Total")).toBeInTheDocument();
-    expect(within(speedMetric).getByText("~40s")).toBeInTheDocument();
+    expect(within(speedMetric).getByText("Run so far")).toBeInTheDocument();
+    expect(within(speedMetric).getByText(/25s/)).toBeInTheDocument();
+    expect(within(speedMetric).getByText("Expected total")).toBeInTheDocument();
+    expect(within(speedMetric).getByText(/~45s/)).toBeInTheDocument();
   });
 
-  it("does not notify for a run that was disabled from its ETA card", async () => {
+  it("does not notify for a run that was disabled from its remaining card", async () => {
     const notificationCalls = installNotificationMock();
     const runningRun = baseRun({
       status: "running",

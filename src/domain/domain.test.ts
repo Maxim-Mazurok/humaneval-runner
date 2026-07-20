@@ -92,7 +92,7 @@ describe("run domain helpers", () => {
     expect(resultNumbers(sample, false)).toBe("0");
   });
 
-  it("formats completed pass and speed/ETA metrics", () => {
+  it("formats completed pass, speed, and remaining metrics", () => {
     const nowMs = Date.parse("2026-06-16T00:00:30.000Z");
     const running = run({
       status: "running",
@@ -119,13 +119,14 @@ describe("run domain helpers", () => {
       ["Total:", "50% (2/4)"],
       ["2nd pass:", "0% (0/2)"]
     ]);
-    expect(liveEstimate(running, events, nowMs)?.remaining).toBe("20s");
+    expect(liveEstimate(running, events, nowMs)?.remaining).toBe("25s");
+    expect(liveEstimate(running, events, nowMs)?.expectedTotal).toBe("55s");
     expect(currentPassTiming(running, events, nowMs)).toMatchObject({
       passNumber: 2,
       elapsed: "5.0s",
       remaining: "5s"
     });
-    expect(speedStats(running, events, nowMs)).toEqual({ averageTask: "15s", bench: "~1m 0s" });
+    expect(speedStats(running, events, nowMs)).toEqual({ averageTask: "15s", elapsed: "30s" });
   });
 });
 

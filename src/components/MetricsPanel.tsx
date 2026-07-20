@@ -20,9 +20,9 @@ export function MetricsPanel({
   selectedRun: BenchRun | null;
   selectedThinkingStats: { flagged: number; total: number };
   commentSignalThreshold: number;
-  selectedLiveEstimate: { remaining: string; endTime: string } | null;
+  selectedLiveEstimate: { remaining: string; endTime: string; expectedTotal: string } | null;
   selectedPassTiming: CurrentPassTiming | null;
-  selectedSpeedStats: { averageTask: string; bench: string };
+  selectedSpeedStats: { averageTask: string; elapsed: string };
   selectedRunNotificationsEnabled: boolean;
   setCommentSignalThreshold: (value: number) => void;
   onCopyNumbers: (passed: boolean) => void;
@@ -74,11 +74,11 @@ export function MetricsPanel({
       </Metric>
       {statusIsInProgress(selectedRun?.status) ? (
         <Metric
-          label="ETA"
-          value={etaMetricLines(selectedLiveEstimate, selectedPassTiming).length
+          label="Remaining"
+          value={remainingMetricLines(selectedLiveEstimate, selectedPassTiming).length
             ? (
                 <MetricLines
-                  lines={etaMetricLines(selectedLiveEstimate, selectedPassTiming)}
+                  lines={remainingMetricLines(selectedLiveEstimate, selectedPassTiming)}
                 />
               )
             : "Estimating..."}
@@ -98,25 +98,44 @@ export function MetricsPanel({
       ) : null}
       <Metric
         label="Speed"
-        value={<MetricLines lines={[["Per task", selectedSpeedStats.averageTask], ["Total", selectedSpeedStats.bench]]} />}
+        value={
+          <MetricLines
+            lines={speedMetricLines(selectedRun, selectedLiveEstimate, selectedSpeedStats)}
+          />
+        }
       />
     </section>
   );
 }
 
-function etaMetricLines(
+function remainingMetricLines(
   selectedLiveEstimate: { remaining: string; endTime: string } | null,
   selectedPassTiming: CurrentPassTiming | null
 ) {
   const lines: MetricLine[] = [];
   if (selectedLiveEstimate) {
-    lines.push(["Total duration", `~${selectedLiveEstimate.remaining}`], ["Total time", selectedLiveEstimate.endTime]);
+    lines.push(["All passes", `~${selectedLiveEstimate.remaining}`], ["Finish at", selectedLiveEstimate.endTime]);
   }
   if (selectedLiveEstimate && selectedPassTiming?.remaining && selectedPassTiming.endTime) {
     lines.push("separator");
   }
   if (selectedPassTiming?.remaining && selectedPassTiming.endTime) {
-    lines.push(["Pass duration", `~${selectedPassTiming.remaining}`], ["Pass time", selectedPassTiming.endTime]);
+    lines.push(["Current pass", `~${selectedPassTiming.remaining}`], ["Pass finishes", selectedPassTiming.endTime]);
+  }
+  return lines;
+}
+
+function speedMetricLines(
+  selectedRun: BenchRun | null,
+  selectedLiveEstimate: { expectedTotal: string } | null,
+  selectedSpeedStats: { averageTask: string; elapsed: string }
+): MetricLine[] {
+  const lines: MetricLine[] = [
+    ["Per task", selectedSpeedStats.averageTask],
+    [statusIsInProgress(selectedRun?.status) ? "Run so far" : "Total run", selectedSpeedStats.elapsed]
+  ];
+  if (statusIsInProgress(selectedRun?.status)) {
+    lines.push(["Expected total", selectedLiveEstimate ? `~${selectedLiveEstimate.expectedTotal}` : "Estimating..."]);
   }
   return lines;
 }
