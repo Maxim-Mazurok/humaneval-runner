@@ -1014,6 +1014,68 @@ describe("App notifications", () => {
     expect(within(completedMetric).getByText("50% (1/2)")).toBeInTheDocument();
   });
 
+  it("separates assertion failures from harness errors and highlights the traceback", async () => {
+    window.history.replaceState(null, "", "/run/run-1");
+    const run = baseRun({
+      status: "completed",
+      total: 2,
+      completed: 2,
+      passed: 0,
+      failed: 2,
+      results: [
+        {
+          taskId: "HumanEval/0",
+          index: 0,
+          entryPoint: "foo",
+          passed: false,
+          tests: [{ source: "assert foo(1) == 1", passed: false }],
+          prompt: "def foo(x): pass",
+          test: "assert foo(1) == 1",
+          rawOutput: "def foo(x): return 0",
+          extractedCode: "def foo(x): return 0"
+        },
+        {
+          taskId: "HumanEval/1",
+          index: 1,
+          entryPoint: "bar",
+          passed: false,
+          tests: [],
+          prompt: "def bar(x): pass",
+          test: "assert bar(1) == 1",
+          rawOutput: "```python\ndef bar(x):",
+          extractedCode: "```python\ndef bar(x):",
+          error: "invalid syntax",
+          traceback: "Traceback (most recent call last):\nSyntaxError: invalid syntax"
+        }
+      ]
+    });
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/api/humaneval/runs")) {
+        return jsonResponse({ runs: [run] });
+      }
+      return jsonResponse({ ...run, events: [] });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+
+    await screen.findByText("HumanEval/1");
+    const failedMetric = screen.getByText("Failed").closest(".bench-metric") as HTMLElement;
+    expect(within(failedMetric).getByText("Assertions")).toBeInTheDocument();
+    expect(within(failedMetric).getByText("Errors")).toBeInTheDocument();
+    expect(within(failedMetric).getAllByText("1")).toHaveLength(2);
+    expect(screen.getByRole("button", { name: /fail.*HumanEval\/0/i })).toBeInTheDocument();
+    const errorTask = screen.getByRole("button", { name: /error.*HumanEval\/1/i });
+
+    await userEvent.click(errorTask);
+
+    const traceback = screen.getByText(/SyntaxError: invalid syntax/);
+    expect(traceback).toHaveClass("harness-error");
+    expect(traceback.closest("details")).toHaveAttribute("open");
+    expect(screen.getByText("No assertions ran.")).toHaveClass("assert-error");
+  });
+
   it("keeps browser back and forward in sync with selected bench", async () => {
     const run = baseRun({
       id: "run-1",

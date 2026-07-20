@@ -210,14 +210,14 @@ export function buildPromptMessages(problem, systemPrompt = defaultSystemPrompt,
   return messages;
 }
 
-export function extractCode(response, prompt) {
-  const text = String(response || "").trim();
-  const pythonBlocks = [...text.matchAll(/```python\s*\n([\s\S]*?)```/gi)];
+export function extractCodeFromOutput(output, prompt) {
+  const text = String(output || "").trim();
+  const pythonBlocks = [...text.matchAll(/(?:^|\n)[ \t]*```[ \t]*python[ \t]*(?:\r?\n|$)([\s\S]*?)(?:(?:\r?\n)[ \t]*```[ \t]*(?=\r?\n|$)|$)/gi)];
   if (pythonBlocks.length) {
     const code = pythonBlocks[pythonBlocks.length - 1][1].trim();
     return code.includes("def ") ? code : prompt + code;
   }
-  const genericBlocks = [...text.matchAll(/```\s*\n([\s\S]*?)```/g)];
+  const genericBlocks = [...text.matchAll(/(?:^|\n)[ \t]*```[ \t]*(?:\r?\n|$)([\s\S]*?)(?:(?:\r?\n)[ \t]*```[ \t]*(?=\r?\n|$)|$)/g)];
   if (genericBlocks.length) {
     const code = genericBlocks[genericBlocks.length - 1][1].trim();
     return code.includes("def ") ? code : prompt + code;

@@ -129,6 +129,28 @@ model output, endpoint details, and reasoning/thinking traces.
 The HumanEval dataset is downloaded on demand into `.cache/`, which is also
 ignored by git.
 
+### Reprocess saved output
+
+To preview how current output-only extraction changes saved runs without
+modifying them:
+
+```bash
+npm run reanalyze:output-extraction -- --no-execute
+```
+
+To re-extract changed candidates from `rawOutput`, rerun their HumanEval tests,
+and update saved run summaries, results, task logs, and events:
+
+```bash
+npm run migrate:output-extraction
+```
+
+The migration preserves explicit model-request errors, creates timestamped
+backups under `benchmark-runs/.migration-backups/`, writes atomically, and is
+safe to rerun. Stop the benchmark API server before migrating, then restart it
+afterward; an already-running server keeps historical runs in memory and will
+not see migrated artifacts until restart.
+
 ## Safety
 
 HumanEval evaluates model-generated Python locally. This runner uses temporary

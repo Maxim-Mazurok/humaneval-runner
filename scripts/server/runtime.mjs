@@ -12,7 +12,7 @@ import {
   defaultPromptTemplate,
   defaultSystemPrompt,
   discardResumeArtifacts,
-  extractCode,
+  extractCodeFromOutput,
   extractTextFromDelta,
   normalizeBaseUrl,
   normalizeParallelTasks,
@@ -480,19 +480,42 @@ async function executeTests(problem, code, timeoutSeconds) {
     }, timeoutSeconds * 1000);
     child.stdout.on("data", (chunk) => { stdout += chunk; });
     child.stderr.on("data", (chunk) => { stderr += chunk; });
-    child.on("close", async () => {
+    child.on("close", async (exitCode, signal) => {
       clearTimeout(timeout);
       await fs.rm(directory, { recursive: true, force: true }).catch(() => {});
+      if (timedOut) {
+        resolve({
+          passed: false,
+          tests: [],
+          stdout,
+          stderr,
+          error: `Execution timed out after ${timeoutSeconds}s`,
+          timeout: true,
+          harnessStdout: stdout,
+          harnessStderr: stderr
+        });
+        return;
+      }
       const lastLine = stdout.trim().split("\n").filter(Boolean).pop();
+      if (!lastLine) {
+        const exitDescription = signal ? `signal ${signal}` : `code ${exitCode ?? "unknown"}`;
+        resolve({
+          passed: false,
+          tests: [],
+          stdout,
+          stderr,
+          error: `Harness exited without a JSON result (${exitDescription})`,
+          timeout: false,
+          harnessStdout: stdout,
+          harnessStderr: stderr
+        });
+        return;
+      }
       try {
-        const parsed = lastLine ? JSON.parse(lastLine) : {};
-        resolve({ ...parsed, harnessStdout: stdout, harnessStderr: stderr });
+        const parsed = JSON.parse(lastLine);
+        resolve({ ...parsed, timeout: false, harnessStdout: stdout, harnessStderr: stderr });
       } catch {
-        if (timedOut) {
-          resolve({ passed: false, tests: [], stdout, stderr, error: "Execution timed out", timeout: true, harnessStdout: stdout, harnessStderr: stderr });
-          return;
-        }
-        resolve({ passed: false, tests: [], stdout, stderr, error: "Harness returned non-JSON output", harnessStdout: stdout, harnessStderr: stderr });
+        resolve({ passed: false, tests: [], stdout, stderr, error: "Harness returned non-JSON output", timeout: false, harnessStdout: stdout, harnessStderr: stderr });
       }
     });
   });
@@ -585,7 +608,7 @@ async function runHumanEval(run) {
           await finishTask(result);
           return;
         }
-        const extractedCode = extractCode(generation.output, problem.prompt);
+        const extractedCode = extractCodeFromOutput(generation.output, problem.prompt);
         appendEvent(run, "code-extracted", { taskId: problem.task_id, index, ...context, code: extractedCode });
         const testResult = await executeTests(problem, extractedCode, run.timeoutSeconds);
         const result = {

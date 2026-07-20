@@ -1,7 +1,14 @@
 import { Bell, BellOff, ClipboardCopy } from "lucide-react";
 import type { BenchRun } from "../domain/benchmark";
 import type { CurrentPassTiming } from "../domain/passTiming";
-import { assertionStats, completedMetricLines, normalizeCommentSignalThreshold, pct, statusIsInProgress } from "../domain/runs";
+import {
+  assertionStats,
+  completedMetricLines,
+  failureStats,
+  normalizeCommentSignalThreshold,
+  pct,
+  statusIsInProgress
+} from "../domain/runs";
 import { Metric, MetricLines, type MetricLine } from "./Metric";
 
 export function MetricsPanel({
@@ -25,22 +32,32 @@ export function MetricsPanel({
   selectedSpeedStats: { averageTask: string; elapsed: string };
   selectedRunNotificationsEnabled: boolean;
   setCommentSignalThreshold: (value: number) => void;
-  onCopyNumbers: (passed: boolean) => void;
+  onCopyNumbers: (status: "pass" | "fail" | "error") => void;
   onCopyThinkingNumbers: (flagged: boolean) => void;
   onToggleNotifications: (run: BenchRun) => void;
 }) {
+  const failures = failureStats(selectedRun?.results);
   return (
     <section className="bench-metrics">
       <Metric label="Completed" value={<MetricLines lines={completedMetricLines(selectedRun)} />} />
       <Metric label="Passed" value={String(selectedRun?.passed ?? 0)} tone="passed">
-        <button className="metric-action" type="button" onClick={() => onCopyNumbers(true)} disabled={!selectedRun?.results.length}>
+        <button className="metric-action" type="button" onClick={() => onCopyNumbers("pass")} disabled={!selectedRun?.results.length}>
           <ClipboardCopy size={14} /> Copy passed
         </button>
       </Metric>
-      <Metric label="Failed" value={String(selectedRun?.failed ?? 0)} tone="failed">
-        <button className="metric-action" type="button" onClick={() => onCopyNumbers(false)} disabled={!selectedRun?.results.length}>
-          <ClipboardCopy size={14} /> Copy failed
-        </button>
+      <Metric
+        label="Failed"
+        value={<MetricLines lines={[["Assertions", String(failures.failedAssertions)], ["Errors", String(failures.errors)]]} />}
+        tone="failed"
+      >
+        <div className="metric-actions">
+          <button className="metric-action" type="button" onClick={() => onCopyNumbers("fail")} disabled={!failures.failedAssertions}>
+            <ClipboardCopy size={14} /> Copy assertion failures
+          </button>
+          <button className="metric-action" type="button" onClick={() => onCopyNumbers("error")} disabled={!failures.errors}>
+            <ClipboardCopy size={14} /> Copy runtime errors
+          </button>
+        </div>
       </Metric>
       <Metric
         label="Assertions"

@@ -5,7 +5,7 @@ import { writeRunArtifacts } from "./artifacts.mjs";
 import {
   buildPromptMessages,
   compactResult,
-  extractCode,
+  extractCodeFromOutput,
   normalizeBaseUrl,
   normalizeParallelTasks,
   normalizePassCount,
@@ -117,7 +117,7 @@ export function createBenchmarkServer({
             });
           }
         });
-        const extractedCode = extractCode(rawOutput, problem.prompt);
+        const extractedCode = extractCodeFromOutput(rawOutput, problem.prompt);
         const testResult = await executeTests(problem, extractedCode, run.timeoutSeconds);
         const result = {
           taskId: problem.task_id,

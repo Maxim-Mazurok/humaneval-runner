@@ -18,9 +18,11 @@ import { buildInstructionPromptFallback, formatPromptMessages } from "./prompts"
 import {
   assertionStats,
   completedMetricLines,
+  failureStats,
   liveEstimate,
   progressSegments,
   resultNumbers,
+  resultStatus,
   runTotal,
   scoreRange,
   speedStats
@@ -88,8 +90,20 @@ describe("run domain helpers", () => {
     expect(scoreRange(sample)).toEqual({ worst: 0.25, best: 0.75 });
     expect(progressSegments(sample)).toEqual({ failed: 25, passed: 25, remaining: 50 });
     expect(assertionStats(sample.results)).toEqual({ passed: 1, total: 2, score: 0.5 });
-    expect(resultNumbers(sample, true)).toBe("2");
-    expect(resultNumbers(sample, false)).toBe("0");
+    expect(resultNumbers(sample, "pass")).toBe("2");
+    expect(resultNumbers(sample, "fail")).toBe("0");
+  });
+
+  it("separates assertion failures from attempts that never ran an assertion", () => {
+    const assertionFailure = result({ index: 4, passed: false, tests: [{ source: "assert a", passed: false }] });
+    const harnessError = result({ index: 9, passed: false, tests: [], traceback: "SyntaxError" });
+    const sample = run({ results: [assertionFailure, harnessError] });
+
+    expect(resultStatus(assertionFailure)).toBe("fail");
+    expect(resultStatus(harnessError)).toBe("error");
+    expect(failureStats(sample.results)).toEqual({ failedAssertions: 1, errors: 1 });
+    expect(resultNumbers(sample, "fail")).toBe("4");
+    expect(resultNumbers(sample, "error")).toBe("9");
   });
 
   it("formats completed pass, speed, and remaining metrics", () => {
@@ -211,6 +225,16 @@ describe("pass and task derivation", () => {
       ["thinking", "plan"],
       ["output", "code"]
     ]);
+  });
+
+  it("marks a zero-assertion harness failure as an error", () => {
+    const selectedRun = run({
+      results: [result({ passed: false, tests: [], error: "Execution timed out" })]
+    });
+
+    const groups = taskGroupsFromRun([], selectedRun, new Map(), new Map());
+
+    expect(groups[0].attempts[0].status).toBe("error");
   });
 
   it("groups adjacent identical pass views only", () => {

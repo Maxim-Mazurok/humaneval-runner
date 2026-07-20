@@ -104,7 +104,9 @@ export function TaskResults({
           ? "running"
           : group.attempts.every((attempt) => attempt.status === "pass")
             ? "pass"
-            : "fail";
+            : group.attempts.some((attempt) => attempt.status === "fail")
+              ? "fail"
+              : "error";
         const isOpen = expanded[group.taskId] ?? groupIsRunning;
         const completedPasses = group.attempts.filter((attempt) => attempt.status !== "running").length;
         const passedPasses = group.attempts.filter((attempt) => attempt.status === "pass").length;
@@ -198,14 +200,14 @@ export function TaskResults({
                 ) : null}
                 {result?.modelError ? <pre>{result.modelError}</pre> : null}
                 {thinkingInComments ? <details open><summary>Thinking in comments</summary><pre className="comment-signal">{formatCommentSignal(commentSignal, commentSignalThreshold)}</pre></details> : null}
-                {result ? <details open><summary>Assert ledger</summary>{result.tests.map((test, index) => <pre key={index} className={test.passed ? "assert-pass" : "assert-fail"}>{formatAssert(test)}</pre>)}</details> : null}
+                {result ? <details open><summary>Assert ledger</summary>{result.tests.length ? result.tests.map((test, index) => <pre key={index} className={test.passed ? "assert-pass" : "assert-fail"}>{formatAssert(test)}</pre>) : <pre className={row.status === "error" ? "assert-error" : undefined}>No assertions ran.</pre>}</details> : null}
                 <details open><summary>Prompt sent to model</summary><pre>{instructionPrompt || "Prompt pending."}</pre></details>
                 <details><summary>Original HumanEval task</summary><pre>{originalPrompt || "Task prompt pending."}</pre></details>
                 {result ? <details><summary>Thinking</summary><pre>{result.thinkingOutput || "No separate thinking stream captured."}</pre></details> : null}
                 {result ? <details><summary>Raw output</summary><pre>{result.rawOutput}</pre></details> : null}
                 {result ? <details><summary>Extracted code</summary><pre>{result.extractedCode}</pre></details> : null}
                 <details><summary>HumanEval tests</summary><pre>{testPrompt || "Tests pending."}</pre></details>
-                {result ? <details><summary>Traceback / harness</summary><pre>{result.traceback || result.error || result.harnessStderr || "No harness error."}</pre></details> : null}
+                {result ? <details open={row.status === "error"}><summary>Traceback / harness</summary><pre className={row.status === "error" ? "harness-error" : undefined}>{result.traceback || result.error || result.modelError || result.harnessStderr || (row.status === "error" ? "Harness failed without recording diagnostic details (legacy result)." : "No harness error.")}</pre></details> : null}
               </div>
             ) : null}
           </article>

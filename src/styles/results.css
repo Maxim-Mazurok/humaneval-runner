@@ -92,6 +92,7 @@ pre {
 
 .pass-pill,
 .fail-pill,
+.error-pill,
 .running-pill {
   min-width: 68px;
   padding: 4px 8px;
@@ -110,6 +111,11 @@ pre {
 .fail-pill {
   color: #8a2d18;
   background: #ffe2d7;
+}
+
+.error-pill {
+  color: #7a3412;
+  background: #ffe9ad;
 }
 
 .running-pill {
@@ -185,6 +191,13 @@ pre {
 .assert-fail {
   border-left: 4px solid var(--brick);
   background: #fff7f3;
+}
+
+.assert-error,
+.harness-error {
+  border-left: 4px solid #c26a16;
+  color: #5f2b0d;
+  background: #fff8df;
 }
 
 .comment-signal {

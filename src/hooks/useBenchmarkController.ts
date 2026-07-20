@@ -399,8 +399,8 @@ export function useBenchmarkController() {
     }
   }
 
-  async function copyNumbers(passed: boolean) {
-    const text = resultNumbers(selectedRun, passed);
+  async function copyNumbers(status: "pass" | "fail" | "error") {
+    const text = resultNumbers(selectedRun, status);
     await navigator.clipboard.writeText(text);
   }
 

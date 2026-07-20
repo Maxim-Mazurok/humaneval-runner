@@ -8,7 +8,7 @@ import {
   buildPromptMessages,
   compactResult,
   discardResumeArtifacts,
-  extractCode,
+  extractCodeFromOutput,
   extractTextFromDelta,
   normalizeBaseUrl,
   normalizeParallelTasks,
@@ -95,8 +95,9 @@ describe("server domain helpers", () => {
       { channel: "output", text: "code" },
       { channel: "refusal", text: "no" }
     ]);
-    expect(extractCode("```python\ndef foo(x):\n    return x\n```", problem.prompt)).toBe("def foo(x):\n    return x");
-    expect(extractCode("    return x", problem.prompt)).toBe(`${problem.prompt}return x`);
+    expect(extractCodeFromOutput("```python\ndef foo(x):\n    return x\n```", problem.prompt)).toBe("def foo(x):\n    return x");
+    expect(extractCodeFromOutput("```python\ndef foo(x):\n    return x", problem.prompt)).toBe("def foo(x):\n    return x");
+    expect(extractCodeFromOutput("    return x", problem.prompt)).toBe(`${problem.prompt}return x`);
   });
 
   it("summarizes runs without leaking bulky result fields into compact events", () => {

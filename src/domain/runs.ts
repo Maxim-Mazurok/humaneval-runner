@@ -224,6 +224,25 @@ export function formatAssert(test: BenchResult["tests"][number]) {
   return lines.join("\n");
 }
 
+export type CompletedResultStatus = "pass" | "fail" | "error";
+
+export function resultStatus(result: BenchResult): CompletedResultStatus {
+  if (result.passed) return "pass";
+  return result.tests.length > 0 ? "fail" : "error";
+}
+
+export function failureStats(results: BenchResult[] = []) {
+  return results.reduce(
+    (stats, result) => {
+      const status = resultStatus(result);
+      if (status === "fail") stats.failedAssertions += 1;
+      if (status === "error") stats.errors += 1;
+      return stats;
+    },
+    { failedAssertions: 0, errors: 0 }
+  );
+}
+
 export function parseJsonObject(value: string) {
   if (!value.trim()) return {};
   const parsed = JSON.parse(value);
@@ -233,9 +252,9 @@ export function parseJsonObject(value: string) {
   return parsed;
 }
 
-export function resultNumbers(run: BenchRun | null, passed: boolean) {
+export function resultNumbers(run: BenchRun | null, status: CompletedResultStatus) {
   return (run?.results ?? [])
-    .filter((result) => result.passed === passed)
+    .filter((result) => resultStatus(result) === status)
     .map((result) => result.index)
     .sort((a, b) => a - b)
     .join(", ");

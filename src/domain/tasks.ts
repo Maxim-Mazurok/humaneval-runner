@@ -1,7 +1,7 @@
 import type { BenchRun, EventEnvelope, TaskGroup, TaskPromptInfo, TaskRow, TokenEvent } from "./benchmark";
 import { attemptKey, attemptPassNumber } from "./passes";
 import { formatPromptMessages } from "./prompts";
-import { runPassCount } from "./runs";
+import { resultStatus, runPassCount } from "./runs";
 
 export function tokensByAttempt(tokens: TokenEvent[]) {
   const grouped = new Map<string, TokenEvent[]>();
@@ -113,7 +113,7 @@ export function taskGroupsFromRun(
       entryPoint: result.entryPoint,
       prompt: result.prompt,
       test: result.test,
-      status: result.passed ? "pass" : "fail",
+      status: resultStatus(result),
       result
     });
   }

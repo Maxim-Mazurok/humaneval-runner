@@ -147,7 +147,7 @@ export type StartedTask = {
 
 export type TaskRow = StartedTask & {
   key: string;
-  status: "running" | "pass" | "fail";
+  status: "running" | "pass" | "fail" | "error";
   result?: BenchResult;
 };
 

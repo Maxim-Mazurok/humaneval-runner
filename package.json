@@ -22,6 +22,8 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "dev:bench": "node scripts/humaneval-server.mjs",
+    "migrate:output-extraction": "node scripts/update-saved-results.mjs --apply",
+    "reanalyze:output-extraction": "node scripts/reprocess-saved-results.mjs",
     "test": "vitest run",
     "test:unit": "vitest run src/notifications.test.ts",
     "test:integration": "vitest run src/App.integration.test.tsx",

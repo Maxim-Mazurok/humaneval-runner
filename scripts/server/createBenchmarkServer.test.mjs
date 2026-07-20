@@ -27,7 +27,8 @@ describe("createBenchmarkServer", () => {
     const runsDir = await fs.mkdtemp(join(tmpdir(), "humaneval-runs-"));
     tempDirs.push(runsDir);
     const modelFetch = vi.fn(async () => new Response([
-      "data: {\"choices\":[{\"delta\":{\"content\":\"```python\\ndef add_one(x):\\n    return x + 1\\n```\"}}]}",
+      "data: {\"choices\":[{\"delta\":{\"reasoning\":\"```python\\ndef leaked_from_thinking(x):\\n    return 0\\n```\"}}]}",
+      "data: {\"choices\":[{\"delta\":{\"content\":\"```python\\ndef add_one(x):\\n    return x + 1\"}}]}",
       "data: [DONE]",
       ""
     ].join("\n\n")));
@@ -73,7 +74,7 @@ describe("createBenchmarkServer", () => {
     });
     expect(detail.events.map((event) => event.type)).toContain("done");
     expect(modelFetch).toHaveBeenCalledWith("http://model.test/v1/chat/completions", expect.objectContaining({ method: "POST" }));
-    expect(executeTests).toHaveBeenCalledWith(expect.objectContaining({ task_id: "HumanEval/0" }), expect.stringContaining("def add_one"), 15);
+    expect(executeTests).toHaveBeenCalledWith(expect.objectContaining({ task_id: "HumanEval/0" }), "def add_one(x):\n    return x + 1", 15);
 
     const runJson = JSON.parse(await fs.readFile(join(runsDir, created.id, "run.json"), "utf8"));
     const resultsJson = JSON.parse(await fs.readFile(join(runsDir, created.id, "results.json"), "utf8"));
