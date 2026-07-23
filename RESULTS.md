@@ -29,3 +29,10 @@ Conclusions:
 - Qwen3.6-27B is a very strong model
 - MXFP4 runs 2.5x faster than 6bit and fits much more comfortably on the 32GB MBP M5, same eval accuracy
 - Opus-Distilled quite a bit lower accuracy than base, might be more clever on math since that is what it was distilled on for the most part
+
+## gpt-oss-20b
+
+- 96.3% - 8192 thinking, 16384 tokens, 3 passes, gpt-oss-20b-MXFP4-Q8, 2h7m (failed: 10, 103, 106, 127, 145, 147)
+
+Conclusions:
+- Surprisingly fast and strong, nothing like the old GPT-2
