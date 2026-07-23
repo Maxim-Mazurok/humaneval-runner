@@ -72,6 +72,8 @@ describe("createBenchmarkServer", () => {
       passed: true,
       tests: [{ source: "assert add_one(1) == 2", passed: true }]
     });
+    expect(detail.results[0].activeDurationMilliseconds).toBeGreaterThanOrEqual(0);
+    expect(detail.results[0].evaluationDurationMilliseconds).toBeGreaterThanOrEqual(0);
     expect(detail.events.map((event) => event.type)).toContain("done");
     expect(modelFetch).toHaveBeenCalledWith("http://model.test/v1/chat/completions", expect.objectContaining({ method: "POST" }));
     expect(executeTests).toHaveBeenCalledWith(expect.objectContaining({ task_id: "HumanEval/0" }), "def add_one(x):\n    return x + 1", 15);

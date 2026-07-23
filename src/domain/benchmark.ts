@@ -71,6 +71,8 @@ export type BenchResult = {
   traceback?: string | null;
   modelError?: string;
   generationMs?: number;
+  activeDurationMilliseconds?: number;
+  evaluationDurationMilliseconds?: number;
   harnessStdout?: string;
   harnessStderr?: string;
   usage?: Record<string, unknown> | null;

@@ -6,7 +6,7 @@ import {
   formatCommentSignal
 } from "../domain/comments";
 import {
-  groupedGenerationLabel,
+  groupedTaskDurationLabel,
   groupSequentialPasses,
   passRangeLabel
 } from "../domain/passes";
@@ -156,7 +156,7 @@ export function TaskResults({
                 #{group.index} · {row.entryPoint || group.entryPoint || "entry point pending"} · {passedPasses}/{completedPasses || 0} passes passing
                 {passTotal > 1 ? ` · ${completedPasses}/${passTotal} passes complete` : ""}
                 {result ? ` · ${passRangeLabel(activePassGroup.startPass, activePassGroup.endPass, passTotal)} · ${assertsPassed}/${result.tests.length} asserts · ${pct(assertScore)}` : ""}
-                {isRunning ? " · in progress" : result ? ` · ${groupedGenerationLabel(activePassGroup.attempts)}` : ""}
+                {isRunning ? " · in progress" : result ? ` · ${groupedTaskDurationLabel(activePassGroup.attempts)}` : ""}
                 {thinkingInComments ? <span className="comment-flag"><AlertTriangle size={12} /> thinking in comments</span> : null}
               </small>
             </button>
@@ -182,7 +182,7 @@ export function TaskResults({
                           <strong>{passRangeLabel(tabGroup.startPass, tabGroup.endPass, passTotal)}</strong>
                           <small>
                             {attempt.result
-                              ? `${attemptAssertsPassed}/${attempt.result.tests.length} asserts · ${groupedGenerationLabel(tabGroup.attempts)}`
+                              ? `${attemptAssertsPassed}/${attempt.result.tests.length} asserts · ${groupedTaskDurationLabel(tabGroup.attempts)}`
                               : "in progress"}
                           </small>
                         </button>

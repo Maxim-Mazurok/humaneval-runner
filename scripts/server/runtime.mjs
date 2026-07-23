@@ -563,6 +563,7 @@ async function runHumanEval(run) {
 
     async function runTask({ problem, index, ordinal, passNumber, passOrdinal, passTotal, attemptId }) {
       if (run.cancelled) throw new Error("Run cancelled.");
+      const taskStartedAtMilliseconds = Date.now();
       run.activeTaskIds = [...new Set([...(run.activeTaskIds || []), problem.task_id])];
       run.currentTaskId = problem.task_id;
       const context = {
@@ -603,14 +604,17 @@ async function runHumanEval(run) {
             prompt: problem.prompt,
             test: problem.test,
             rawOutput: "",
-            extractedCode: ""
+            extractedCode: "",
+            activeDurationMilliseconds: Date.now() - taskStartedAtMilliseconds
           };
           await finishTask(result);
           return;
         }
         const extractedCode = extractCodeFromOutput(generation.output, problem.prompt);
         appendEvent(run, "code-extracted", { taskId: problem.task_id, index, ...context, code: extractedCode });
+        const evaluationStartedAtMilliseconds = Date.now();
         const testResult = await executeTests(problem, extractedCode, run.timeoutSeconds);
+        const evaluationDurationMilliseconds = Date.now() - evaluationStartedAtMilliseconds;
         const result = {
           taskId: problem.task_id,
           attemptId,
@@ -637,7 +641,9 @@ async function runHumanEval(run) {
           extractedCode,
           usage: generation.usage,
           finishReason: generation.finishReason,
-          generationMs: generation.elapsedMs
+          generationMs: generation.elapsedMs,
+          evaluationDurationMilliseconds,
+          activeDurationMilliseconds: Date.now() - taskStartedAtMilliseconds
         };
         await finishTask(result);
       } finally {

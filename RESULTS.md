@@ -22,7 +22,7 @@ Conclusions:
 ## Qwen3.6-27B
 
 - [WIP 74/164 42.7-97.6%] 94.6% - 8192 thinking, 16384 tokens, 1 pass, Qwen3.5-27B-Claude-4.6-Opus-Distilled-MLX-4bit, 2h17m (failed: 32 (infinite loop), 41 (comment parsed as code), 65, 68)
-- 98.8% - 8192 thinking, 16384 tokens, 2 passes, Qwen3.6-27B-MXFP4, 21h2m (failed in both: 134 (didn't handle edge case correctly, pretty clearly wrong assumption), 145) (#94 failed if extracting code from thinking)
+- 98.8% - 8192 thinking, 16384 tokens, 3 passes, Qwen3.6-27B-MXFP4, 31h28m (failed, same in all passes: 134 (didn't handle edge case correctly, pretty clearly wrong assumption), 145) (#94 failed if extracting code from thinking)
 - 98.8% - 8192 thinking, 16384 tokens, 1 pass, Qwen3.6-27B-MLX-6bit, 24h8m (failed: 32 (luck-based solution), 145 (tricky requirement misinterpretation); 2nd incomplete pass: 145)
 
 Conclusions:

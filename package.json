@@ -20,7 +20,8 @@
   "homepage": "https://github.com/Maxim-Mazurok/humaneval-runner#readme",
   "type": "module",
   "scripts": {
-    "dev": "vite --host 0.0.0.0",
+    "dev": "concurrently --kill-others-on-fail --names frontend,backend --prefix-colors cyan,green \"npm run dev:frontend\" \"npm run dev:bench\"",
+    "dev:frontend": "node scripts/start-frontend.mjs",
     "dev:bench": "node scripts/humaneval-server.mjs",
     "migrate:output-extraction": "node scripts/update-saved-results.mjs --apply",
     "reanalyze:output-extraction": "node scripts/reprocess-saved-results.mjs",
@@ -45,6 +46,7 @@
     "@testing-library/user-event": "^14.6.1",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
+    "concurrently": "^9.2.1",
     "jsdom": "^29.1.1",
     "typescript": "^5.9.3",
     "vitest": "^4.1.9"

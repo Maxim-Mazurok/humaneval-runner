@@ -120,8 +120,8 @@ describe("run domain helpers", () => {
       activeTaskIds: ["HumanEval/2"],
       config: { passCount: 2, parallelTasks: 1 },
       results: [
-        result({ generationMs: 10_000 }),
-        result({ taskId: "HumanEval/1", generationMs: 20_000 })
+        result({ generationMs: 10_000, activeDurationMilliseconds: 12_000 }),
+        result({ taskId: "HumanEval/1", generationMs: 20_000, activeDurationMilliseconds: 22_000 })
       ]
     });
     const events: EventEnvelope[] = [{
@@ -134,14 +134,35 @@ describe("run domain helpers", () => {
       ["Total:", "50% (2/4)"],
       ["2nd pass:", "0% (0/2)"]
     ]);
-    expect(liveEstimate(running, events, nowMs)?.remaining).toBe("25s");
-    expect(liveEstimate(running, events, nowMs)?.expectedTotal).toBe("55s");
+    expect(liveEstimate(running, events, nowMs)?.remaining).toBe("29s");
+    expect(liveEstimate(running, events, nowMs)?.expectedTotal).toBe("1m 8s");
     expect(currentPassTiming(running, events, nowMs)).toMatchObject({
       passNumber: 2,
       elapsed: "5.0s",
       remaining: "5s"
     });
-    expect(speedStats(running, events, nowMs)).toEqual({ averageTask: "15s", elapsed: "30s" });
+    expect(speedStats(running, events, nowMs)).toEqual({ averageTask: "17s", elapsed: "39s" });
+
+    const pausedCompletedRun = run({
+      status: "completed",
+      startedAt: "2026-06-16T00:00:00.000Z",
+      finishedAt: "2026-06-18T00:00:00.000Z",
+      completed: 2,
+      total: 2,
+      results: running.results
+    });
+    expect(speedStats(pausedCompletedRun, [], nowMs)).toEqual({ averageTask: "17s", elapsed: "34s" });
+
+    const nearlyCompletedParallelRun = run({
+      status: "running",
+      total: 3,
+      completed: 2,
+      currentTaskId: "HumanEval/2",
+      activeTaskIds: ["HumanEval/2"],
+      config: { parallelTasks: 4 },
+      results: [result({ generationMs: 10_000 }), result({ taskId: "HumanEval/1", generationMs: 10_000 })]
+    });
+    expect(liveEstimate(nearlyCompletedParallelRun, events, nowMs)?.remaining).toBe("5s");
   });
 });
 
@@ -179,7 +200,7 @@ describe("pass and task derivation", () => {
       finishedAt: null,
       config: { passCount: 2 },
       results: [
-        result({ taskId: "HumanEval/0", passNumber: 1, passTotal: 2, passed: true, generationMs: 1000 }),
+        result({ taskId: "HumanEval/0", passNumber: 1, passTotal: 2, passed: true, generationMs: 1000, activeDurationMilliseconds: 1500 }),
         result({ taskId: "HumanEval/1", passNumber: 1, passTotal: 2, passed: true, generationMs: 2000 }),
         result({ taskId: "HumanEval/0", passNumber: 2, passTotal: 2, passed: false })
       ]
@@ -196,7 +217,7 @@ describe("pass and task derivation", () => {
     expect(stats.minScore).toBe(1);
     expect(stats.maxScore).toBe(1);
     expect(passPossibleScoreRange(stats.passRows[1], stats.tasksPerPass)).toEqual({ worst: 0, best: 0.5 });
-    expect(chartGroups[0].averagePassDurationMilliseconds).toBe(3000);
+    expect(chartGroups[0].averagePassDurationMilliseconds).toBe(3500);
     expect(chartGroups[1].averagePassDurationMilliseconds).toBeNull();
   });
 

@@ -925,7 +925,8 @@ describe("App notifications", () => {
           test: "",
           rawOutput: "",
           extractedCode: "",
-          generationMs: 10_000
+          generationMs: 10_000,
+          activeDurationMilliseconds: 12_000
         },
         {
           taskId: "HumanEval/1",
@@ -937,7 +938,8 @@ describe("App notifications", () => {
           test: "",
           rawOutput: "",
           extractedCode: "",
-          generationMs: 10_000
+          generationMs: 10_000,
+          activeDurationMilliseconds: 12_000
         }
       ]
     });
@@ -956,11 +958,11 @@ describe("App notifications", () => {
     await screen.findByText("Speed");
     const speedMetric = screen.getByText("Speed").closest(".bench-metric") as HTMLElement;
     expect(within(speedMetric).getByText("Per task")).toBeInTheDocument();
-    expect(within(speedMetric).getByText("10s")).toBeInTheDocument();
+    expect(within(speedMetric).getByText("12s")).toBeInTheDocument();
     expect(within(speedMetric).getByText("Run so far")).toBeInTheDocument();
-    expect(within(speedMetric).getByText(/25s/)).toBeInTheDocument();
+    expect(within(speedMetric).getByText(/24s/)).toBeInTheDocument();
     expect(within(speedMetric).getByText("Expected total")).toBeInTheDocument();
-    expect(within(speedMetric).getByText(/~45s/)).toBeInTheDocument();
+    expect(within(speedMetric).getByText(/~48s/)).toBeInTheDocument();
   });
 
   it("does not notify for a run that was disabled from its remaining card", async () => {

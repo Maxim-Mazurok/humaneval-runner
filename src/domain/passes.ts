@@ -1,5 +1,5 @@
 import type { BenchRun, ChartPassGroup, PassTabGroup, PassVariabilityStats, TaskRow } from "./benchmark";
-import { formatMs, normalizePassCount, runPassCount, runTotal } from "./runs";
+import { formatMs, normalizePassCount, resultActiveDurationMilliseconds, runPassCount, runTotal } from "./runs";
 
 export function attemptPassNumber(value: { passNumber?: number } | Record<string, unknown> | undefined) {
   const parsed = Number(value?.passNumber ?? 1);
@@ -54,8 +54,9 @@ export function passVariabilityStats(run?: BenchRun | null): PassVariabilityStat
     row.completed += 1;
     if (result.passed) row.passed += 1;
     else row.failed += 1;
-    if (typeof result.generationMs === "number" && Number.isFinite(result.generationMs) && result.generationMs > 0) {
-      row.passDurationMilliseconds = (row.passDurationMilliseconds ?? 0) + result.generationMs;
+    const activeDurationMilliseconds = resultActiveDurationMilliseconds(result);
+    if (activeDurationMilliseconds > 0) {
+      row.passDurationMilliseconds = (row.passDurationMilliseconds ?? 0) + activeDurationMilliseconds;
     }
     row.score = row.completed ? row.passed / row.completed : 0;
     passRows.set(passNumber, row);
@@ -186,10 +187,10 @@ function averagePassDurationMilliseconds(rows: PassVariabilityStats["passRows"])
     : null;
 }
 
-export function groupedGenerationLabel(attempts: TaskRow[]) {
+export function groupedTaskDurationLabel(attempts: TaskRow[]) {
   const durations = attempts
-    .map((attempt) => attempt.result?.generationMs)
-    .filter((value): value is number => typeof value === "number" && Number.isFinite(value) && value > 0);
+    .map((attempt) => attempt.result ? resultActiveDurationMilliseconds(attempt.result) : 0)
+    .filter((durationMilliseconds) => durationMilliseconds > 0);
   if (!durations.length) return "n/a";
   const min = Math.min(...durations);
   const max = Math.max(...durations);

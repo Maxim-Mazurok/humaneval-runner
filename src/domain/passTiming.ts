@@ -1,6 +1,16 @@
 import type { BenchRun, ChartPassGroup, EventEnvelope } from "./benchmark";
 import { attemptPassNumber } from "./passes";
-import { currentTaskStartedAtMs, formatClock, formatDuration, formatMs, runPassCount, runTotal, statusIsLive } from "./runs";
+import {
+  activeTaskElapsedDurationsMilliseconds,
+  formatClock,
+  formatDuration,
+  formatMs,
+  estimatedParallelRemainingMilliseconds,
+  resultActiveDurationMilliseconds,
+  runPassCount,
+  runTotal,
+  statusIsLive
+} from "./runs";
 
 export type CurrentPassTiming = {
   passNumber: number;
@@ -18,18 +28,26 @@ export function currentPassTiming(
 ): CurrentPassTiming | null {
   if (!run || !statusIsLive(run.status)) return null;
   const passNumber = currentPassNumber(run, events);
-  const startedAtMilliseconds = taskStartedAtMilliseconds ?? currentTaskStartedAtMs(run, events);
-  const currentTaskMilliseconds = startedAtMilliseconds ? Math.max(nowMilliseconds - startedAtMilliseconds, 0) : 0;
+  const activeTaskDurationsMilliseconds = activeTaskElapsedDurationsMilliseconds(
+    run,
+    events,
+    nowMilliseconds,
+    taskStartedAtMilliseconds
+  );
+  const currentTaskMilliseconds = activeTaskDurationsMilliseconds.reduce(
+    (totalMilliseconds, durationMilliseconds) => totalMilliseconds + durationMilliseconds,
+    0
+  );
   const completedResults = run.results.filter((result) => attemptPassNumber(result) === passNumber);
   const completedTaskMilliseconds = completedResults.reduce((totalMilliseconds, result) => (
-    totalMilliseconds + validDurationMilliseconds(result.generationMs)
+    totalMilliseconds + resultActiveDurationMilliseconds(result)
   ), 0);
   const elapsedMilliseconds = completedTaskMilliseconds + currentTaskMilliseconds;
   const remainingMilliseconds = currentPassRemainingMilliseconds(
     run,
     completedResults.length,
     completedTaskMilliseconds,
-    currentTaskMilliseconds
+    activeTaskDurationsMilliseconds
   );
 
   return {
@@ -73,21 +91,29 @@ function currentPassRemainingMilliseconds(
   run: BenchRun,
   completedTaskCount: number,
   completedTaskMilliseconds: number,
-  currentTaskMilliseconds: number
+  activeTaskDurationsMilliseconds: number[]
 ) {
   const passCount = runPassCount(run);
   const tasksPerPass = Math.max(1, Math.ceil(runTotal(run) / passCount));
   const remainingTaskCount = Math.max(tasksPerPass - completedTaskCount, 0);
   if (!remainingTaskCount) return 0;
+  const currentTaskMilliseconds = activeTaskDurationsMilliseconds.reduce(
+    (totalMilliseconds, durationMilliseconds) => totalMilliseconds + durationMilliseconds,
+    0
+  );
   const averageTaskMilliseconds = completedTaskCount
     ? completedTaskMilliseconds / completedTaskCount
-    : currentTaskMilliseconds || null;
+    : activeTaskDurationsMilliseconds.length
+      ? currentTaskMilliseconds / activeTaskDurationsMilliseconds.length
+      : null;
   if (!averageTaskMilliseconds) return null;
   const parallelTasks = Math.max(1, Math.floor(Number(run.config?.parallelTasks ?? 1)));
-  const estimatedRemainingMilliseconds = (averageTaskMilliseconds * remainingTaskCount) / parallelTasks;
-  return Math.max(estimatedRemainingMilliseconds - currentTaskMilliseconds, 0);
-}
-
-function validDurationMilliseconds(value: number | undefined) {
-  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 0;
+  const activeTaskCount = Math.min(activeTaskDurationsMilliseconds.length, remainingTaskCount);
+  const queuedTaskCount = remainingTaskCount - activeTaskCount;
+  return estimatedParallelRemainingMilliseconds(
+    activeTaskDurationsMilliseconds,
+    queuedTaskCount,
+    averageTaskMilliseconds,
+    parallelTasks
+  );
 }

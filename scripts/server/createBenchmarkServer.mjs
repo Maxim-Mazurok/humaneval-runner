@@ -79,6 +79,7 @@ export function createBenchmarkServer({
       for (const index of selectedIndices) {
         const problem = problems[index];
         const attemptId = `${problem.task_id}::pass-${passNumber}`;
+        const taskStartedAtMilliseconds = now().getTime();
         appendEvent(run, "task-started", {
           taskId: problem.task_id,
           attemptId,
@@ -118,7 +119,9 @@ export function createBenchmarkServer({
           }
         });
         const extractedCode = extractCodeFromOutput(rawOutput, problem.prompt);
+        const evaluationStartedAtMilliseconds = now().getTime();
         const testResult = await executeTests(problem, extractedCode, run.timeoutSeconds);
+        const evaluationDurationMilliseconds = now().getTime() - evaluationStartedAtMilliseconds;
         const result = {
           taskId: problem.task_id,
           attemptId,
@@ -132,6 +135,8 @@ export function createBenchmarkServer({
           test: problem.test,
           rawOutput,
           extractedCode,
+          evaluationDurationMilliseconds,
+          activeDurationMilliseconds: now().getTime() - taskStartedAtMilliseconds,
           error: testResult.error || null,
           traceback: testResult.traceback || null
         };

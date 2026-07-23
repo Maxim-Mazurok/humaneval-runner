@@ -41,16 +41,17 @@ Install dependencies:
 npm install
 ```
 
-Start the benchmark API server:
-
-```bash
-npm run dev:bench
-```
-
-In another terminal, start the web UI:
+Start the web UI and benchmark API server:
 
 ```bash
 npm run dev
+```
+
+The web UI starts after the benchmark API is available. Press `Ctrl+C` to stop
+both services. To start only the benchmark API server:
+
+```bash
+npm run dev:bench
 ```
 
 Open:
@@ -103,6 +104,12 @@ each task row.
 Use `Stop selected` to cancel an active run. If the run is incomplete, select it
 again and use `Resume` to continue only the attempts that do not already have
 saved results.
+
+Timing totals sum active task durations rather than wall time between the run's
+start and finish, so stopped or interrupted periods are excluded. New results
+include generation and test evaluation time; older saved results use their
+recorded generation time. Finish-time estimates apply configured parallelism,
+while task-time totals remain the sum of all attempt durations.
 
 The `Extra request body` field accepts a JSON object and is merged into the
 chat completion request. For example:

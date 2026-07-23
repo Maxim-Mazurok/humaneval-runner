@@ -114,13 +114,6 @@ export function formatClock(valueMs: number) {
   return date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
 }
 
-export function runStartedAtMs(run?: BenchRun | null) {
-  const value = run?.startedAt || run?.createdAt;
-  if (!value) return null;
-  const timestamp = new Date(value).getTime();
-  return Number.isFinite(timestamp) ? timestamp : null;
-}
-
 export function currentTaskStartedAtMs(run: BenchRun | null, events: EventEnvelope[]) {
   if (!run?.currentTaskId) return null;
   for (let index = events.length - 1; index >= 0; index -= 1) {
@@ -147,64 +140,145 @@ export function statusIsInProgress(status?: string) {
   return status === "running";
 }
 
-export function liveEstimate(run: BenchRun | null, events: EventEnvelope[], nowMs: number, taskStartedAtMs?: number | null) {
+export function resultActiveDurationMilliseconds(result: BenchResult) {
+  return validDurationMilliseconds(result.activeDurationMilliseconds)
+    || validDurationMilliseconds(result.generationMs);
+}
+
+export function activeTaskElapsedDurationsMilliseconds(
+  run: BenchRun | null,
+  events: EventEnvelope[],
+  nowMilliseconds: number,
+  currentTaskStartedAtMilliseconds?: number | null
+) {
+  if (!run || !statusIsInProgress(run.status)) return [];
+  const activeTaskIds = new Set(run.activeTaskIds ?? []);
+  if (run.currentTaskId) activeTaskIds.add(run.currentTaskId);
+  return [...activeTaskIds].map((taskId) => {
+    const startedAtMilliseconds = taskId === run.currentTaskId && currentTaskStartedAtMilliseconds
+      ? currentTaskStartedAtMilliseconds
+      : taskStartedAtMilliseconds(taskId, events);
+    return startedAtMilliseconds ? Math.max(nowMilliseconds - startedAtMilliseconds, 0) : 0;
+  }).filter((durationMilliseconds) => durationMilliseconds > 0);
+}
+
+export function liveEstimate(
+  run: BenchRun | null,
+  events: EventEnvelope[],
+  nowMilliseconds: number,
+  currentTaskStartedAtMilliseconds?: number | null
+) {
   if (!run || !statusIsLive(run.status)) return null;
   const total = runTotal(run);
   const remainingTasks = Math.max(total - run.completed, 0);
-  const startedAtMs = runStartedAtMs(run);
-  if (!startedAtMs || run.completed <= 0 || remainingTasks <= 0) return null;
+  if (run.completed <= 0 || remainingTasks <= 0) return null;
   const parallelTasks = Math.max(1, Math.floor(Number(run.config?.parallelTasks ?? 1)));
-  const elapsedMilliseconds = Math.max(nowMs - startedAtMs, 0);
-  const currentStartedAtMs = taskStartedAtMs ?? currentTaskStartedAtMs(run, events);
-  const currentTaskMilliseconds = currentStartedAtMs ? Math.max(nowMs - currentStartedAtMs, 0) : 0;
-  const averageTaskMilliseconds = averageTaskDurationMilliseconds(run, elapsedMilliseconds, currentTaskMilliseconds);
+  const completedTaskMilliseconds = completedActiveDurationMilliseconds(run);
+  const averageTaskMilliseconds = averageTaskDurationMilliseconds(run);
   if (!averageTaskMilliseconds) return null;
-  const remainingMilliseconds = Math.max(
-    (averageTaskMilliseconds * remainingTasks) / parallelTasks - currentTaskMilliseconds,
+  const activeTaskDurationsMilliseconds = activeTaskElapsedDurationsMilliseconds(
+    run,
+    events,
+    nowMilliseconds,
+    currentTaskStartedAtMilliseconds
+  );
+  const activeTaskCount = Math.min(activeTaskDurationsMilliseconds.length, remainingTasks);
+  const queuedTaskCount = remainingTasks - activeTaskCount;
+  const activeTasksRemainingMilliseconds = activeTaskDurationsMilliseconds.reduce(
+    (totalMilliseconds, durationMilliseconds) => (
+      totalMilliseconds + Math.max(averageTaskMilliseconds - durationMilliseconds, 0)
+    ),
+    0
+  );
+  const remainingActiveMilliseconds = activeTasksRemainingMilliseconds + (averageTaskMilliseconds * queuedTaskCount);
+  const remainingMilliseconds = estimatedParallelRemainingMilliseconds(
+    activeTaskDurationsMilliseconds,
+    queuedTaskCount,
+    averageTaskMilliseconds,
+    parallelTasks
+  );
+  const currentActiveMilliseconds = activeTaskDurationsMilliseconds.reduce(
+    (totalMilliseconds, durationMilliseconds) => totalMilliseconds + durationMilliseconds,
     0
   );
   return {
     remaining: formatDuration(remainingMilliseconds),
-    endTime: formatClock(nowMs + remainingMilliseconds),
-    expectedTotal: formatDuration(elapsedMilliseconds + remainingMilliseconds)
+    endTime: formatClock(nowMilliseconds + remainingMilliseconds),
+    expectedTotal: formatDuration(completedTaskMilliseconds + currentActiveMilliseconds + remainingActiveMilliseconds)
   };
 }
 
-export function runElapsedMs(run: BenchRun | null, nowMs: number) {
-  const startedAtMs = runStartedAtMs(run);
-  if (!startedAtMs) return null;
-  const finishedAtMs = run?.finishedAt ? new Date(run.finishedAt).getTime() : null;
-  const endMs = finishedAtMs && Number.isFinite(finishedAtMs) ? finishedAtMs : nowMs;
-  return Math.max(endMs - startedAtMs, 0);
-}
-
-export function speedStats(run: BenchRun | null, events: EventEnvelope[], nowMs: number, taskStartedAtMs?: number | null) {
+export function speedStats(
+  run: BenchRun | null,
+  events: EventEnvelope[],
+  nowMilliseconds: number,
+  currentTaskStartedAtMilliseconds?: number | null
+) {
   if (!run) return { averageTask: "n/a", elapsed: "n/a" };
-  const elapsedMs = runElapsedMs(run, nowMs);
-  const parallelTasks = Math.max(1, Math.floor(Number(run.config?.parallelTasks ?? 1)));
-  const currentStartedAtMs = statusIsLive(run.status) && parallelTasks === 1
-    ? (taskStartedAtMs ?? currentTaskStartedAtMs(run, events))
-    : null;
-  const currentTaskMs = currentStartedAtMs ? Math.max(nowMs - currentStartedAtMs, 0) : 0;
-  const averageTaskMs = elapsedMs === null
-    ? null
-    : averageTaskDurationMilliseconds(run, elapsedMs, currentTaskMs);
+  const completedTaskMilliseconds = completedActiveDurationMilliseconds(run);
+  const activeTaskMilliseconds = activeTaskElapsedDurationsMilliseconds(
+    run,
+    events,
+    nowMilliseconds,
+    currentTaskStartedAtMilliseconds
+  ).reduce((totalMilliseconds, durationMilliseconds) => totalMilliseconds + durationMilliseconds, 0);
+  const elapsedMilliseconds = completedTaskMilliseconds + activeTaskMilliseconds;
+  const averageTaskMilliseconds = averageTaskDurationMilliseconds(run);
   return {
-    averageTask: averageTaskMs ? formatMs(averageTaskMs) : "n/a",
-    elapsed: elapsedMs === null ? "n/a" : formatDuration(elapsedMs)
+    averageTask: averageTaskMilliseconds ? formatMs(averageTaskMilliseconds) : "n/a",
+    elapsed: elapsedMilliseconds > 0 ? formatDuration(elapsedMilliseconds) : "n/a"
   };
 }
 
-function averageTaskDurationMilliseconds(run: BenchRun, elapsedMilliseconds: number, currentTaskMilliseconds: number) {
+function completedActiveDurationMilliseconds(run: BenchRun) {
+  return run.results.reduce(
+    (totalMilliseconds, result) => totalMilliseconds + resultActiveDurationMilliseconds(result),
+    0
+  );
+}
+
+function averageTaskDurationMilliseconds(run: BenchRun) {
   const resultDurations = run.results
-    .map((result) => result.generationMs)
-    .filter((value): value is number => typeof value === "number" && Number.isFinite(value) && value > 0);
+    .map(resultActiveDurationMilliseconds)
+    .filter((durationMilliseconds) => durationMilliseconds > 0);
   if (resultDurations.length) {
     return resultDurations.reduce((totalDuration, duration) => totalDuration + duration, 0) / resultDurations.length;
   }
-  const completed = Math.max(run.completed || run.results.length || 0, 0);
-  const completedTaskElapsedMilliseconds = Math.max(elapsedMilliseconds - currentTaskMilliseconds, 0);
-  return completedTaskElapsedMilliseconds && completed ? completedTaskElapsedMilliseconds / completed : null;
+  return null;
+}
+
+function taskStartedAtMilliseconds(taskId: string, events: EventEnvelope[]) {
+  for (let eventIndex = events.length - 1; eventIndex >= 0; eventIndex -= 1) {
+    const event = events[eventIndex];
+    if (event.type !== "task-started" || event.data.taskId !== taskId) continue;
+    const timestamp = new Date(event.at).getTime();
+    return Number.isFinite(timestamp) ? timestamp : null;
+  }
+  return null;
+}
+
+export function estimatedParallelRemainingMilliseconds(
+  activeTaskDurationsMilliseconds: number[],
+  queuedTaskCount: number,
+  averageTaskMilliseconds: number,
+  parallelTasks: number
+) {
+  const remainingTaskCount = activeTaskDurationsMilliseconds.length + queuedTaskCount;
+  if (!remainingTaskCount) return 0;
+  const workerCount = Math.min(Math.max(1, parallelTasks), remainingTaskCount);
+  const workerLoadsMilliseconds = activeTaskDurationsMilliseconds
+    .slice(0, workerCount)
+    .map((durationMilliseconds) => Math.max(averageTaskMilliseconds - durationMilliseconds, 0));
+  while (workerLoadsMilliseconds.length < workerCount) workerLoadsMilliseconds.push(0);
+  for (let taskIndex = 0; taskIndex < queuedTaskCount; taskIndex += 1) {
+    const nextWorkerIndex = workerLoadsMilliseconds.indexOf(Math.min(...workerLoadsMilliseconds));
+    workerLoadsMilliseconds[nextWorkerIndex] += averageTaskMilliseconds;
+  }
+  return Math.max(...workerLoadsMilliseconds);
+}
+
+function validDurationMilliseconds(value?: number) {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 0;
 }
 
 export function assertionStats(results: BenchResult[] = []) {

@@ -58,7 +58,9 @@ function runFixture(overrides = {}) {
       rawOutput: "```python\ndef foo(x): return x\n```",
       thinkingOutput: "private",
       extractedCode: "def foo(x): return x",
-      generationMs: 100
+      generationMs: 100,
+      evaluationDurationMilliseconds: 10,
+      activeDurationMilliseconds: 110
     }],
     ...overrides
   };
