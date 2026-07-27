@@ -19,6 +19,10 @@ Conclusions:
 - 97% - 8192 thinking, 16384 tokens, 1 pass, gemma-4-12B-it-8bit, 23h33m
 - 96.3% - 8192 thinking, 16384 tokens, 1 pass, gemma-4-12B-it-8bit, 23h (partly using speculative decoding, hence the speedup iirc)
 
+## gemma-4-26B-A4B
+
+- 81.7% - 8192 thinking, 16384 tokens, 1 pass, gemma-4-26B-A4B-it-QAT-MLX-4bit, 6h50m
+
 ## Qwen3.6-27B
 
 - [WIP 74/164 42.7-97.6%] 94.6% - 8192 thinking, 16384 tokens, 1 pass, Qwen3.5-27B-Claude-4.6-Opus-Distilled-MLX-4bit, 2h17m (failed: 32 (infinite loop), 41 (comment parsed as code), 65, 68)
