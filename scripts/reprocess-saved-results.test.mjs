@@ -107,6 +107,37 @@ describe("saved result reprocessing", () => {
     expect(markdown).not.toContain("private chain of thought");
   });
 
+  it("skips saved runs from non-HumanEval benchmarks", async () => {
+    const runsDir = await fs.mkdtemp(join(tmpdir(), "humaneval-reprocess-test-"));
+    tempDirs.push(runsDir);
+    const runDir = join(runsDir, "bbeh-run");
+    await fs.mkdir(runDir);
+    await fs.writeFile(join(runDir, "run.json"), JSON.stringify({
+      id: "bbeh-1",
+      benchmark: "bbeh-mini",
+      model: "demo-model",
+      status: "completed",
+      config: { benchmark: "bbeh-mini" }
+    }));
+    await fs.writeFile(join(runDir, "results.json"), JSON.stringify([
+      {
+        taskId: "bbeh_mini/0",
+        index: 0,
+        passed: true,
+        tests: [{ source: "final answer matches target (official BBEH fuzzy match)", passed: true }],
+        prompt: "Question?",
+        rawOutput: "The answer is: yes.",
+        extractedCode: "yes"
+      }
+    ]));
+    const executeCandidate = vi.fn();
+
+    const report = await reprocessArchive({ runsDir, executeCandidate, execute: true });
+
+    expect(report.totals.runDirectories).toBe(0);
+    expect(executeCandidate).not.toHaveBeenCalled();
+  });
+
   it("can compare extractions without executing candidates", async () => {
     const runsDir = await fs.mkdtemp(join(tmpdir(), "humaneval-reprocess-test-"));
     tempDirs.push(runsDir);

@@ -1,26 +1,36 @@
 # HumanEval Runner
 
-A local web workbench for running the OpenAI HumanEval benchmark against any
-OpenAI-compatible `/v1/chat/completions` endpoint.
+A local web workbench for running LLM benchmarks against any OpenAI-compatible
+`/v1/chat/completions` endpoint. Supported benchmarks:
 
-The core workflow is simple: point the app at a model endpoint, edit the system
-prompt or user prompt template, start a subset or full HumanEval run, and watch
-live pass/fail results stream in as each task completes.
+- **HumanEval** — code generation, scored by executing the official tests.
+- **BBEH Mini / BBEH Full** — [BIG-Bench Extra Hard](https://github.com/google-deepmind/bbeh)
+  reasoning tasks, scored with a faithful port of the official
+  `evaluate.py` fuzzy answer matching.
+
+The core workflow is simple: pick a benchmark, point the app at a model
+endpoint, edit the system prompt or user prompt template, start a subset or
+full run, and watch live pass/fail results stream in as each task completes.
+Each run uses exactly one benchmark.
 
 ![HumanEval Runner live benchmark workbench](docs/screenshot.png)
 
 ## Features
 
 - React/Vite GUI for configuring benchmark runs.
+- Benchmark selector: HumanEval (code) or BBEH Mini/Full (reasoning), with
+  per-benchmark default prompts and answer extraction.
 - OpenAI-compatible streaming chat completions support.
-- Editable system prompt and HumanEval prompt template.
-- Full HumanEval runs or targeted task lists such as `0, 1, 2` or `10-25`.
+- Editable system prompt and per-benchmark prompt template.
+- Full runs or targeted task lists such as `0, 1, 2` or `10-25`.
 - Configurable pass count for rerunning the selected benchmark set multiple
   times in pass-major order.
 - Configurable task parallelism, defaulting to one task at a time.
-- Live pass@1 score, completed/passed/failed counts, and assertion-level stats.
-- Per-task views for prompt, original task, model output, extracted code,
-  captured reasoning/thinking stream, tests, traceback, and assertion ledger.
+- Live pass@1 score, completed/passed/failed counts, and assertion-level stats
+  (answer checks for BBEH).
+- Per-task views for prompt, original task, model output, extracted code or
+  final answer, captured reasoning/thinking stream, tests or expected answer,
+  traceback, and assertion ledger.
 - Copy buttons for failed or passed task numbers so you can rerun focused sets.
 - Server-side runs continue if the browser reloads; the UI can reconnect to
   active or historical runs.
@@ -80,8 +90,12 @@ evidence-first optimization process.
 
 ## Running Benchmarks
 
-Use `Limit = 0` to run all 164 HumanEval problems. To run a subset, either set
-`Start` and `Limit`, or enter explicit `Test numbers` such as:
+Pick a benchmark first. Switching benchmarks loads that benchmark's default
+system prompt and prompt template and clears task selections.
+
+Use `Limit = 0` to run the whole dataset (164 HumanEval problems, 460 BBEH Mini
+examples, or 4,520 BBEH Full examples). To run a subset, either set `Start` and
+`Limit`, or enter explicit `Test numbers` such as:
 
 ```text
 0, 1, 2
@@ -89,17 +103,22 @@ Use `Limit = 0` to run all 164 HumanEval problems. To run a subset, either set
 HumanEval/0 HumanEval/42
 ```
 
-The prompt template must include `%problem_code%`; that marker is replaced with
-the HumanEval function stub for each task.
+The prompt template must include `%problem_code%` (HumanEval) or `%problem%`
+(BBEH); that marker is replaced with the task input for each problem.
 
-Set `Parallel` to the number of HumanEval tasks to solve at once. The default is
+For BBEH, answers are extracted from the model output with the official BBEH
+rules (looking for `The answer is: ...` style suffixes, then normalizing), and
+scored with the official fuzzy matcher. The default BBEH prompt template asks
+the model to finish with `The answer is: <answer>`.
+
+Set `Parallel` to the number of benchmark tasks to solve at once. The default is
 `1`, which preserves sequential execution. Higher values send multiple model
 requests concurrently and can make runs faster if your endpoint supports it.
 
 Set `Passes` to rerun the same selected benchmark set multiple times. The runner
 executes the whole task set for pass 1, then the whole task set for pass 2, and
-so on. Results are grouped by HumanEval task in the UI, with pass tabs inside
-each task row.
+so on. Results are grouped by task in the UI, with pass tabs inside each task
+row.
 
 Use `Stop selected` to cancel an active run. If the run is incomplete, select it
 again and use `Resume` to continue only the attempts that do not already have
@@ -133,8 +152,9 @@ the timestamp first so folders sort by start time:
 `benchmark-runs/` is ignored by git because it can contain private prompts,
 model output, endpoint details, and reasoning/thinking traces.
 
-The HumanEval dataset is downloaded on demand into `.cache/`, which is also
-ignored by git.
+Benchmark datasets are downloaded on demand into `.cache/` (HumanEval as
+`HumanEval.jsonl`, BBEH task files under `.cache/bbeh/`), which is also ignored
+by git.
 
 ### Reprocess saved output
 
@@ -159,6 +179,8 @@ afterward; an already-running server keeps historical runs in memory and will
 not see migrated artifacts until restart.
 
 ## Safety
+
+BBEH runs never execute model output; answers are compared as text.
 
 HumanEval evaluates model-generated Python locally. This runner uses temporary
 directories, timeouts, and a lightweight reliability guard, but it is not a

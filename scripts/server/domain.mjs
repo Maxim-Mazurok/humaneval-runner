@@ -59,6 +59,7 @@ export function runSummary(run, { includeResults = true } = {}) {
   return {
     id: run.id,
     status: run.status,
+    benchmark: run.benchmark || "humaneval",
     model: run.model,
     baseUrl: run.baseUrl,
     createdAt: run.createdAt,
@@ -78,6 +79,7 @@ export function runSummary(run, { includeResults = true } = {}) {
     config: {
       baseUrl: run.baseUrl,
       model: run.model,
+      benchmark: run.benchmark || "humaneval",
       parallelTasks: run.parallelTasks || 1,
       passCount: run.passCount || 1,
       ...(run.publicConfig || {})
@@ -95,6 +97,7 @@ export function persistedRunState(run) {
 export function runtimeConfigFromPersistedRun(persisted) {
   const persistedConfig = persisted.config || persisted.publicConfig || {};
   return {
+    benchmark: String(persistedConfig.benchmark ?? persisted.benchmark ?? "humaneval"),
     publicConfig: {
       ...persistedConfig,
       apiKey: redactApiKey(persistedConfig.apiKey)
@@ -176,6 +179,7 @@ export function runDirName(run) {
   return [
     formatRunDirTimestamp(run.startedAt || run.createdAt),
     slugifyRunPart(run.model),
+    ...(run.benchmark && run.benchmark !== "humaneval" ? [slugifyRunPart(run.benchmark)] : []),
     run.id
   ].join("-");
 }
@@ -198,7 +202,11 @@ export function extractTextFromDelta(delta) {
 }
 
 export function renderPromptTemplate(template, problem) {
-  return String(template || defaultPromptTemplate).replaceAll("%problem_code%", problem.prompt);
+  // Use replacement callbacks so "$" sequences in task text are inserted
+  // literally instead of being interpreted as replacement patterns.
+  return String(template || defaultPromptTemplate)
+    .replaceAll("%problem_code%", () => problem.prompt)
+    .replaceAll("%problem%", () => problem.prompt);
 }
 
 export function buildPromptMessages(problem, systemPrompt = defaultSystemPrompt, promptTemplate = defaultPromptTemplate) {
@@ -226,7 +234,7 @@ export function extractCodeFromOutput(output, prompt) {
   return prompt + text;
 }
 
-export function parseTestNumbers(value, datasetSize) {
+export function parseTestNumbers(value, datasetSize, taskIdPattern = /HumanEval\/(\d+)$/i) {
   if (Array.isArray(value)) {
     const selected = [...new Set(value.map(Number).filter((number) => Number.isInteger(number)))].sort((a, b) => a - b);
     const invalid = selected.filter((index) => index < 0 || index >= datasetSize);
@@ -238,6 +246,7 @@ export function parseTestNumbers(value, datasetSize) {
   const raw = String(value || "").trim();
   if (!raw) return [];
   const selected = new Set();
+  const invalid = [];
   for (const part of raw.split(/[\s,]+/).filter(Boolean)) {
     const range = part.match(/^(\d+)\s*-\s*(\d+)$/);
     if (range) {
@@ -247,14 +256,25 @@ export function parseTestNumbers(value, datasetSize) {
       for (let index = first; step > 0 ? index <= last : index >= last; index += step) selected.add(index);
       continue;
     }
-    const task = part.match(/HumanEval\/(\d+)$/i);
-    selected.add(Number(task ? task[1] : part));
+    const task = taskIdPattern ? part.match(taskIdPattern) : null;
+    const index = Number(task ? task[1] : part);
+    if (!Number.isInteger(index)) {
+      invalid.push(part);
+      continue;
+    }
+    selected.add(index);
   }
-  const invalid = [...selected].filter((index) => !Number.isInteger(index) || index < 0 || index >= datasetSize);
+  invalid.push(...[...selected].filter((index) => index < 0 || index >= datasetSize));
   if (invalid.length) {
     throw new Error(`Invalid test number(s): ${invalid.join(", ")}. Use 0-${datasetSize - 1}.`);
   }
   return [...selected].sort((a, b) => a - b);
+}
+
+export function normalizeTaskCount(value) {
+  const parsed = Number(value ?? 0);
+  if (!Number.isFinite(parsed)) return 0;
+  return Math.max(0, Math.floor(parsed));
 }
 
 export function normalizeParallelTasks(value) {

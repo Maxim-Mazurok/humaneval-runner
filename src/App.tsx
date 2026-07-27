@@ -9,6 +9,7 @@ import { useBenchmarkController } from "./hooks/useBenchmarkController";
 
 export default function App() {
   const {
+    benchmark,
     baseUrl,
     apiKey,
     model,
@@ -40,6 +41,7 @@ export default function App() {
     sidebarCollapsed,
     selectedPassByTask,
     commentSignalThreshold,
+    setBenchmark,
     setBaseUrl,
     setApiKey,
     setModel,
@@ -82,6 +84,7 @@ export default function App() {
         </button>
       ) : (
         <SidebarConfig
+          benchmark={benchmark}
           baseUrl={baseUrl}
           apiKey={apiKey}
           model={model}
@@ -101,6 +104,7 @@ export default function App() {
           onStartRun={startRun}
           onCancelRun={cancelRun}
           onResumeRun={resumeRun}
+          setBenchmark={setBenchmark}
           setBaseUrl={setBaseUrl}
           setApiKey={setApiKey}
           setModel={setModel}

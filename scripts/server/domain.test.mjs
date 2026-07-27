@@ -13,8 +13,10 @@ import {
   normalizeBaseUrl,
   normalizeParallelTasks,
   normalizePassCount,
+  normalizeTaskCount,
   parseTestNumbers,
   redactApiKey,
+  renderPromptTemplate,
   runtimeConfigFromPersistedRun,
   runSummary,
   syncRunCountsFromResults
@@ -83,6 +85,21 @@ describe("server domain helpers", () => {
     expect(normalizeParallelTasks(0)).toBe(1);
     expect(normalizePassCount(101)).toBe(100);
     expect(normalizePassCount(0)).toBe(1);
+    expect(normalizeTaskCount(2.7)).toBe(2);
+    expect(normalizeTaskCount(-5)).toBe(0);
+    expect(normalizeTaskCount("abc")).toBe(0);
+  });
+
+  it("reports the offending tokens for unparseable test numbers", () => {
+    expect(() => parseTestNumbers("bbeh_mini/3", 10, null)).toThrow("bbeh_mini/3");
+    expect(() => parseTestNumbers("HumanEval/3", 10, null)).toThrow("HumanEval/3");
+    expect(parseTestNumbers("3", 10, null)).toEqual([3]);
+  });
+
+  it("inserts task text literally even when it contains replacement patterns", () => {
+    const problem = { prompt: "Costs are $100, so $& and $' must stay literal." };
+    expect(renderPromptTemplate("Task: %problem%", problem)).toBe(`Task: ${problem.prompt}`);
+    expect(renderPromptTemplate("Task: %problem_code%", problem)).toBe(`Task: ${problem.prompt}`);
   });
 
   it("builds prompt messages, extracts streamed deltas, and extracts code", () => {

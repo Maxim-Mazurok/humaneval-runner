@@ -15,6 +15,9 @@ export function buildInstructionPromptFallback(run: BenchRun | null, originalPro
   if (!originalPrompt) return undefined;
   const systemContent = run?.config?.systemPrompt ?? DEFAULT_SYSTEM_PROMPT;
   const userTemplate = run?.config?.promptTemplate ?? DEFAULT_PROMPT_TEMPLATE;
-  const userContent = String(userTemplate || DEFAULT_PROMPT_TEMPLATE).replaceAll("%problem_code%", originalPrompt);
+  // Replacement callbacks keep "$" sequences in task text literal.
+  const userContent = String(userTemplate || DEFAULT_PROMPT_TEMPLATE)
+    .replaceAll("%problem_code%", () => originalPrompt)
+    .replaceAll("%problem%", () => originalPrompt);
   return `SYSTEM:\n${systemContent}\n\nUSER:\n${userContent}`;
 }

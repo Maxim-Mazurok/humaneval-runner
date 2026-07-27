@@ -9,10 +9,16 @@ import {
   Settings2,
   TerminalSquare
 } from "lucide-react";
-import type { BenchRun } from "../domain/benchmark";
+import {
+  BENCHMARK_OPTIONS,
+  benchmarkOption,
+  type BenchmarkId,
+  type BenchRun
+} from "../domain/benchmark";
 import { normalizeParallelTasks, normalizePassCount, runCanResume, statusIsLive } from "../domain/runs";
 
 export type SidebarConfigProps = {
+  benchmark: BenchmarkId;
   baseUrl: string;
   apiKey: string;
   model: string;
@@ -32,6 +38,7 @@ export type SidebarConfigProps = {
   onStartRun: () => void;
   onCancelRun: () => void;
   onResumeRun: () => void;
+  setBenchmark: (value: BenchmarkId) => void;
   setBaseUrl: (value: string) => void;
   setApiKey: (value: string) => void;
   setModel: (value: string) => void;
@@ -48,14 +55,15 @@ export type SidebarConfigProps = {
 };
 
 export function SidebarConfig(props: SidebarConfigProps) {
+  const selectedBenchmark = benchmarkOption(props.benchmark);
   return (
     <aside className="bench-sidebar">
       <div className="bench-title-row">
         <div className="bench-title">
           <TerminalSquare size={34} />
           <div>
-            <p>HumanEval</p>
-            <h1>Code benchmark workbench</h1>
+            <p>{selectedBenchmark.label}</p>
+            <h1>LLM benchmark workbench</h1>
           </div>
         </div>
         <button
@@ -68,6 +76,17 @@ export function SidebarConfig(props: SidebarConfigProps) {
           <PanelLeftClose size={18} />
         </button>
       </div>
+      <label className="field">
+        <span><FileText size={14} /> Benchmark</span>
+        <select
+          value={props.benchmark}
+          onChange={(event) => props.setBenchmark(event.target.value as BenchmarkId)}
+        >
+          {BENCHMARK_OPTIONS.map((option) => (
+            <option key={option.id} value={option.id}>{option.label}</option>
+          ))}
+        </select>
+      </label>
       <label className="field">
         <span><Server size={14} /> Base URL</span>
         <input value={props.baseUrl} onChange={(event) => props.setBaseUrl(event.target.value)} placeholder="https://host/v1" />
@@ -99,11 +118,11 @@ export function SidebarConfig(props: SidebarConfigProps) {
         </label>
         <label className="field">
           <span>Start</span>
-          <input value={props.startIndex} min={0} max={163} type="number" onChange={(event) => props.setStartIndex(Number(event.target.value))} />
+          <input value={props.startIndex} min={0} max={selectedBenchmark.datasetSize - 1} type="number" onChange={(event) => props.setStartIndex(Number(event.target.value))} />
         </label>
         <label className="field">
           <span>Limit</span>
-          <input value={props.sampleLimit} min={0} max={164} type="number" onChange={(event) => props.setSampleLimit(Number(event.target.value))} />
+          <input value={props.sampleLimit} min={0} max={selectedBenchmark.datasetSize} type="number" onChange={(event) => props.setSampleLimit(Number(event.target.value))} />
         </label>
       </div>
       <label className="field">
@@ -112,7 +131,7 @@ export function SidebarConfig(props: SidebarConfigProps) {
           value={props.testNumbers}
           onChange={(event) => props.setTestNumbers(event.target.value)}
           rows={3}
-          placeholder="0, 1, 2 or 10-25. Empty uses start/limit."
+          placeholder={selectedBenchmark.taskNumbersPlaceholder}
         />
       </label>
       <label className="field">
@@ -125,16 +144,18 @@ export function SidebarConfig(props: SidebarConfigProps) {
           value={props.promptTemplate}
           onChange={(event) => props.setPromptTemplate(event.target.value)}
           rows={11}
-          placeholder="Use %problem_code% where the HumanEval function stub should be inserted."
+          placeholder={selectedBenchmark.promptTemplateHint}
         />
       </label>
       <label className="field">
         <span><Settings2 size={14} /> Extra request body</span>
         <textarea value={props.extraBody} onChange={(event) => props.setExtraBody(event.target.value)} rows={5} />
       </label>
-      <div className="bench-warning">
-        Executes model-generated Python locally. Use a dedicated sandbox for untrusted endpoints.
-      </div>
+      {selectedBenchmark.kind === "code" ? (
+        <div className="bench-warning">
+          Executes model-generated Python locally. Use a dedicated sandbox for untrusted endpoints.
+        </div>
+      ) : null}
       <div className="bench-actions">
         <button className="primary-action" type="button" onClick={props.onStartRun} disabled={!props.model.trim()}>
           <Play size={17} /> Start run

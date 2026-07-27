@@ -1,2 +1,4 @@
 #!/usr/bin/env node
-import "./server/runtime.mjs";
+import { startRuntimeServer } from "./server/runtime.mjs";
+
+await startRuntimeServer();

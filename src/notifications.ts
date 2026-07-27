@@ -3,11 +3,22 @@ export const NOTIFY_DISABLED_RUNS_STORAGE_KEY = "humaneval.notify.disabledRuns";
 export type RunNotificationSummary = {
   id: string;
   status: string;
+  benchmark?: string;
   model?: string;
   total?: number;
   selectedIndices?: number[];
   passed: number;
 };
+
+const notificationBenchmarkLabels: Record<string, string> = {
+  humaneval: "HumanEval",
+  "bbeh-mini": "BBEH Mini",
+  "bbeh-full": "BBEH"
+};
+
+export function notificationBenchmarkLabel(benchmark?: string) {
+  return notificationBenchmarkLabels[benchmark ?? "humaneval"] ?? "Benchmark";
+}
 
 export function runTotal(run: Pick<RunNotificationSummary, "total" | "selectedIndices">) {
   return run.total || run.selectedIndices?.length || 164;
@@ -75,8 +86,9 @@ export function writeRunNotificationPreference(runId: string, enabled: boolean, 
 
 export function buildRunNotification(run: RunNotificationSummary, eventType = run.status) {
   const finished = eventType === "done" || run.status === "completed";
+  const benchmarkLabel = notificationBenchmarkLabel(run.benchmark);
   return {
-    title: finished ? "HumanEval run finished" : "HumanEval run stopped",
+    title: finished ? `${benchmarkLabel} run finished` : `${benchmarkLabel} run stopped`,
     options: {
       body: `${run.model || "model"} · ${run.passed}/${runTotal(run)} passed · ${run.status}`,
       tag: run.id

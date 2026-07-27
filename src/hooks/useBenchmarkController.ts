@@ -57,9 +57,9 @@ export function useBenchmarkController() {
   const performanceMetricsEnabled = useMemo(() => performanceDebugIsEnabled(window), []);
   const form = useBenchForm();
   const {
-    baseUrl, apiKey, model, maxTokens, timeoutSeconds, parallelTasks,
+    benchmark, baseUrl, apiKey, model, maxTokens, timeoutSeconds, parallelTasks,
     passCount, commentSignalThreshold, sampleLimit, startIndex, testNumbers,
-    systemPrompt, promptTemplate, extraBody, setBaseUrl, setApiKey, setModel,
+    systemPrompt, promptTemplate, extraBody, setBenchmark, setBaseUrl, setApiKey, setModel,
     setMaxTokens, setTimeoutSeconds, setParallelTasks, setPassCount,
     setCommentSignalThreshold, setSampleLimit, setStartIndex, setTestNumbers,
     setSystemPrompt, setPromptTemplate, setExtraBody, resetRunConfig, loadRunConfig
@@ -312,6 +312,7 @@ export function useBenchmarkController() {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
+          benchmark,
           baseUrl,
           apiKey,
           model,
@@ -410,6 +411,7 @@ export function useBenchmarkController() {
   }
 
   return {
+    benchmark,
     baseUrl,
     apiKey,
     model,
@@ -441,6 +443,7 @@ export function useBenchmarkController() {
     sidebarCollapsed,
     selectedPassByTask,
     commentSignalThreshold,
+    setBenchmark,
     setBaseUrl,
     setApiKey,
     setModel,

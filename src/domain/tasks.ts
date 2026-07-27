@@ -70,6 +70,7 @@ export function taskGroupsFromRun(
       passOrdinal: Number(event.data.passOrdinal) || undefined,
       index,
       entryPoint: String(event.data.entryPoint || ""),
+      subtask: typeof event.data.subtask === "string" ? event.data.subtask : undefined,
       prompt: typeof event.data.prompt === "string" ? event.data.prompt : undefined,
       test: typeof event.data.test === "string" ? event.data.test : undefined,
       status: "running"
@@ -84,7 +85,9 @@ export function taskGroupsFromRun(
     const key = attemptKey(taskId, passNumber);
     if (rows.has(key)) continue;
     const tokenIndex = groupedTokens.get(key)?.find((token) => Number.isFinite(token.index))?.index;
-    const parsedIndex = Number(taskId.match(/HumanEval\/(\d+)$/)?.[1]);
+    // Only HumanEval and BBEH-mini task ids encode the global dataset index;
+    // BBEH-full ids end in a subtask-local ordinal, which must not be used.
+    const parsedIndex = Number(taskId.match(/^(?:HumanEval|bbeh_mini)\/(\d+)$/i)?.[1]);
     const fallbackIndex = Number.isFinite(parsedIndex) ? parsedIndex : Number.MAX_SAFE_INTEGER;
     const promptInfo = groupedPromptInfo.get(key);
     rows.set(key, {
@@ -111,6 +114,7 @@ export function taskGroupsFromRun(
       passTotal,
       index: result.index,
       entryPoint: result.entryPoint,
+      subtask: result.subtask,
       prompt: result.prompt,
       test: result.test,
       status: resultStatus(result),

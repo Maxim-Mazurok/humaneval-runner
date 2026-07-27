@@ -1,6 +1,31 @@
 export const BENCH_API = "http://localhost:8787";
 export const SIDEBAR_COLLAPSED_STORAGE_KEY = "humaneval.sidebar.collapsed";
 
+export type BenchmarkId = "humaneval" | "bbeh-mini" | "bbeh-full";
+export type BenchmarkKind = "code" | "qa";
+
+export const BBEH_SYSTEM_PROMPT = `You are solving a hard reasoning problem.
+Think through the problem step by step before answering.
+Keep your reasoning concise and end with your final answer.
+`;
+
+export const BBEH_PROMPT_TEMPLATE = `%problem%
+
+When you are done, finish your response with a final line formatted exactly as:
+The answer is: <answer>
+`;
+
+export type BenchmarkOption = {
+  id: BenchmarkId;
+  label: string;
+  kind: BenchmarkKind;
+  datasetSize: number;
+  systemPrompt: string;
+  promptTemplate: string;
+  taskNumbersPlaceholder: string;
+  promptTemplateHint: string;
+};
+
 export const DEFAULT_SYSTEM_PROMPT = `You are completing a Python programming task.
 
 Implement the requested function exactly as described by the prompt. Prioritize functional correctness above all else. Performance is secondary unless the prompt gives explicit limits.
@@ -25,7 +50,53 @@ Task prompt:
 \`\`\`
 `;
 
+export const BENCHMARK_OPTIONS: BenchmarkOption[] = [
+  {
+    id: "humaneval",
+    label: "HumanEval (code)",
+    kind: "code",
+    datasetSize: 164,
+    systemPrompt: DEFAULT_SYSTEM_PROMPT,
+    promptTemplate: DEFAULT_PROMPT_TEMPLATE,
+    taskNumbersPlaceholder: "0, 1, 2 or 10-25. Empty uses start/limit.",
+    promptTemplateHint: "Use %problem_code% where the HumanEval function stub should be inserted."
+  },
+  {
+    id: "bbeh-mini",
+    label: "BBEH Mini (reasoning)",
+    kind: "qa",
+    datasetSize: 460,
+    systemPrompt: BBEH_SYSTEM_PROMPT,
+    promptTemplate: BBEH_PROMPT_TEMPLATE,
+    taskNumbersPlaceholder: "0, 1, 2 or 10-25. Empty uses start/limit.",
+    promptTemplateHint: "Use %problem% where the BBEH task input should be inserted."
+  },
+  {
+    id: "bbeh-full",
+    label: "BBEH Full (reasoning)",
+    kind: "qa",
+    datasetSize: 4520,
+    systemPrompt: BBEH_SYSTEM_PROMPT,
+    promptTemplate: BBEH_PROMPT_TEMPLATE,
+    taskNumbersPlaceholder: "0, 1, 2 or 10-25. Empty uses start/limit.",
+    promptTemplateHint: "Use %problem% where the BBEH task input should be inserted."
+  }
+];
+
+export function benchmarkOption(benchmarkId?: string | null): BenchmarkOption {
+  return BENCHMARK_OPTIONS.find((option) => option.id === benchmarkId) ?? BENCHMARK_OPTIONS[0];
+}
+
+export function runBenchmarkId(run?: { benchmark?: string; config?: { benchmark?: string } } | null): BenchmarkId {
+  return benchmarkOption(run?.config?.benchmark ?? run?.benchmark).id;
+}
+
+export function runBenchmarkKind(run?: { benchmark?: string; config?: { benchmark?: string } } | null): BenchmarkKind {
+  return benchmarkOption(run?.config?.benchmark ?? run?.benchmark).kind;
+}
+
 export const DEFAULT_FORM_VALUES = {
+  benchmark: "humaneval" as BenchmarkId,
   baseUrl: "http://localhost:8000/v1",
   apiKey: "",
   model: "",
@@ -49,6 +120,8 @@ export type BenchResult = {
   passTotal?: number;
   index: number;
   entryPoint: string;
+  subtask?: string;
+  expectedAnswer?: string;
   passed: boolean;
   tests: Array<{
     source: string;
@@ -81,6 +154,7 @@ export type BenchResult = {
 export type BenchRun = {
   id: string;
   status: string;
+  benchmark?: string;
   model: string;
   baseUrl: string;
   createdAt: string;
@@ -101,6 +175,7 @@ export type BenchRun = {
   config?: {
     baseUrl?: string;
     model?: string;
+    benchmark?: string;
     apiKey?: string;
     temperature?: number;
     systemPrompt?: string;
@@ -143,6 +218,7 @@ export type StartedTask = {
   passOrdinal?: number;
   index: number;
   entryPoint: string;
+  subtask?: string;
   prompt?: string;
   test?: string;
 };

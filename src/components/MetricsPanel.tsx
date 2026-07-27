@@ -1,5 +1,5 @@
 import { Bell, BellOff, ClipboardCopy } from "lucide-react";
-import type { BenchRun } from "../domain/benchmark";
+import { runBenchmarkKind, type BenchRun } from "../domain/benchmark";
 import type { CurrentPassTiming } from "../domain/passTiming";
 import {
   assertionStats,
@@ -37,6 +37,8 @@ export function MetricsPanel({
   onToggleNotifications: (run: BenchRun) => void;
 }) {
   const failures = failureStats(selectedRun?.results);
+  const isCodeBenchmark = runBenchmarkKind(selectedRun) === "code";
+  const checksLabel = isCodeBenchmark ? "Assertions" : "Answer checks";
   return (
     <section className="bench-metrics">
       <Metric label="Completed" value={<MetricLines lines={completedMetricLines(selectedRun)} />} />
@@ -47,12 +49,12 @@ export function MetricsPanel({
       </Metric>
       <Metric
         label="Failed"
-        value={<MetricLines lines={[["Assertions", String(failures.failedAssertions)], ["Errors", String(failures.errors)]]} />}
+        value={<MetricLines lines={[[checksLabel, String(failures.failedAssertions)], ["Errors", String(failures.errors)]]} />}
         tone="failed"
       >
         <div className="metric-actions">
           <button className="metric-action" type="button" onClick={() => onCopyNumbers("fail")} disabled={!failures.failedAssertions}>
-            <ClipboardCopy size={14} /> Copy assertion failures
+            <ClipboardCopy size={14} /> {isCodeBenchmark ? "Copy assertion failures" : "Copy wrong answers"}
           </button>
           <button className="metric-action" type="button" onClick={() => onCopyNumbers("error")} disabled={!failures.errors}>
             <ClipboardCopy size={14} /> Copy runtime errors
@@ -60,35 +62,37 @@ export function MetricsPanel({
         </div>
       </Metric>
       <Metric
-        label="Assertions"
+        label={checksLabel}
         value={
           selectedRun
             ? `${selectedRun.assertionsPassed ?? assertionStats(selectedRun.results).passed}/${selectedRun.assertionsTotal ?? assertionStats(selectedRun.results).total} (${pct(selectedRun.assertionScore ?? assertionStats(selectedRun.results).score)})`
             : "0/0 (0%)"
         }
       />
-      <Metric
-        label="Thinking in comments"
-        value={selectedRun ? `${selectedThinkingStats.flagged}/${selectedThinkingStats.total}` : "0/0"}
-      >
-        <div className="metric-actions">
-          <button className="metric-action" type="button" onClick={() => onCopyThinkingNumbers(true)} disabled={!selectedRun?.results.length}>
-            <ClipboardCopy size={14} /> Copy detected
-          </button>
-          <button className="metric-action" type="button" onClick={() => onCopyThinkingNumbers(false)} disabled={!selectedRun?.results.length}>
-            <ClipboardCopy size={14} /> Copy clean
-          </button>
-        </div>
-        <label className="metric-input">
-          <span>Threshold</span>
-          <input
-            value={commentSignalThreshold}
-            type="number"
-            onChange={(event) => setCommentSignalThreshold(normalizeCommentSignalThreshold(Number(event.target.value)))}
-          />
-          <b>%</b>
-        </label>
-      </Metric>
+      {isCodeBenchmark ? (
+        <Metric
+          label="Thinking in comments"
+          value={selectedRun ? `${selectedThinkingStats.flagged}/${selectedThinkingStats.total}` : "0/0"}
+        >
+          <div className="metric-actions">
+            <button className="metric-action" type="button" onClick={() => onCopyThinkingNumbers(true)} disabled={!selectedRun?.results.length}>
+              <ClipboardCopy size={14} /> Copy detected
+            </button>
+            <button className="metric-action" type="button" onClick={() => onCopyThinkingNumbers(false)} disabled={!selectedRun?.results.length}>
+              <ClipboardCopy size={14} /> Copy clean
+            </button>
+          </div>
+          <label className="metric-input">
+            <span>Threshold</span>
+            <input
+              value={commentSignalThreshold}
+              type="number"
+              onChange={(event) => setCommentSignalThreshold(normalizeCommentSignalThreshold(Number(event.target.value)))}
+            />
+            <b>%</b>
+          </label>
+        </Metric>
+      ) : null}
       {statusIsInProgress(selectedRun?.status) ? (
         <Metric
           label="Remaining"

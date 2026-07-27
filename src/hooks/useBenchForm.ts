@@ -1,8 +1,8 @@
 import { useState } from "react";
 import {
+  benchmarkOption,
   DEFAULT_FORM_VALUES,
-  DEFAULT_PROMPT_TEMPLATE,
-  DEFAULT_SYSTEM_PROMPT,
+  type BenchmarkId,
   type BenchRun
 } from "../domain/benchmark";
 import {
@@ -12,6 +12,7 @@ import {
 } from "../domain/runs";
 
 export function useBenchForm() {
+  const [benchmark, setBenchmarkState] = useState<BenchmarkId>(DEFAULT_FORM_VALUES.benchmark);
   const [baseUrl, setBaseUrl] = useState(DEFAULT_FORM_VALUES.baseUrl);
   const [apiKey, setApiKey] = useState(DEFAULT_FORM_VALUES.apiKey);
   const [model, setModel] = useState(DEFAULT_FORM_VALUES.model);
@@ -27,7 +28,20 @@ export function useBenchForm() {
   const [promptTemplate, setPromptTemplate] = useState(DEFAULT_FORM_VALUES.promptTemplate);
   const [extraBody, setExtraBody] = useState(DEFAULT_FORM_VALUES.extraBody);
 
+  // Switching benchmarks swaps in that benchmark's default prompts and clears
+  // dataset-specific task selections, which do not transfer between datasets.
+  function setBenchmark(nextBenchmark: BenchmarkId) {
+    const option = benchmarkOption(nextBenchmark);
+    setBenchmarkState(option.id);
+    setSystemPrompt(option.systemPrompt);
+    setPromptTemplate(option.promptTemplate);
+    setTestNumbers(DEFAULT_FORM_VALUES.testNumbers);
+    setStartIndex(DEFAULT_FORM_VALUES.startIndex);
+    setSampleLimit(DEFAULT_FORM_VALUES.sampleLimit);
+  }
+
   function resetRunConfig() {
+    setBenchmarkState(DEFAULT_FORM_VALUES.benchmark);
     setBaseUrl(DEFAULT_FORM_VALUES.baseUrl);
     setApiKey(DEFAULT_FORM_VALUES.apiKey);
     setModel(DEFAULT_FORM_VALUES.model);
@@ -46,6 +60,8 @@ export function useBenchForm() {
 
   function loadRunConfig(run: BenchRun) {
     const config = run.config ?? {};
+    const option = benchmarkOption(config.benchmark ?? run.benchmark);
+    setBenchmarkState(option.id);
     setBaseUrl(config.baseUrl ?? run.baseUrl ?? "");
     setModel(config.model ?? run.model ?? "");
     setMaxTokens(Number(config.maxTokens ?? 2048));
@@ -55,15 +71,15 @@ export function useBenchForm() {
     setSampleLimit(Number(config.sampleLimit ?? 0));
     setStartIndex(Number(config.startIndex ?? 0));
     setTestNumbers(String(config.testNumbers ?? ""));
-    setSystemPrompt(String(config.systemPrompt ?? DEFAULT_SYSTEM_PROMPT));
-    setPromptTemplate(String(config.promptTemplate ?? DEFAULT_PROMPT_TEMPLATE));
+    setSystemPrompt(String(config.systemPrompt ?? option.systemPrompt));
+    setPromptTemplate(String(config.promptTemplate ?? option.promptTemplate));
     setExtraBody(formatExtraBody(config.extraBody));
   }
 
   return {
-    baseUrl, apiKey, model, maxTokens, timeoutSeconds, parallelTasks,
+    benchmark, baseUrl, apiKey, model, maxTokens, timeoutSeconds, parallelTasks,
     passCount, commentSignalThreshold, sampleLimit, startIndex, testNumbers,
-    systemPrompt, promptTemplate, extraBody, setBaseUrl, setApiKey, setModel,
+    systemPrompt, promptTemplate, extraBody, setBenchmark, setBaseUrl, setApiKey, setModel,
     setMaxTokens, setTimeoutSeconds, setParallelTasks, setPassCount,
     setCommentSignalThreshold, setSampleLimit, setStartIndex, setTestNumbers,
     setSystemPrompt, setPromptTemplate, setExtraBody, resetRunConfig, loadRunConfig

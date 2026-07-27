@@ -1,5 +1,5 @@
 import { AlertTriangle, ChevronDown, ChevronRight } from "lucide-react";
-import type { BenchRun, TaskGroup, TaskPromptInfo, TokenEvent } from "../domain/benchmark";
+import { runBenchmarkKind, type BenchRun, type TaskGroup, type TaskPromptInfo, type TokenEvent } from "../domain/benchmark";
 import {
   analyzeThinkingComments,
   commentSignalIsFlagged,
@@ -37,6 +37,25 @@ export function TaskResults({
   setSelectedPassByTask: (updater: (previous: Record<string, number>) => Record<string, number>) => void;
 }) {
   const performanceMetricsEnabled = typeof window !== "undefined" && Boolean(window.humanEvalPerformanceMetrics);
+  const benchmarkKind = runBenchmarkKind(selectedRun);
+  const isCodeBenchmark = benchmarkKind === "code";
+  const labels = isCodeBenchmark
+    ? {
+        ledger: "Assert ledger",
+        ledgerEmpty: "No assertions ran.",
+        extracted: "Extracted code",
+        task: "Original HumanEval task",
+        reference: "HumanEval tests",
+        checks: "asserts"
+      }
+    : {
+        ledger: "Answer check",
+        ledgerEmpty: "No answer was checked.",
+        extracted: "Extracted answer",
+        task: "Task input",
+        reference: "Expected answer",
+        checks: "checks"
+      };
   let detailPanelCount = 0;
   let visiblePreTextBytes = 0;
   let attemptViewBuildDurationMilliseconds = 0;
@@ -56,7 +75,7 @@ export function TaskResults({
             || buildInstructionPromptFallback(selectedRun, originalPrompt);
           const testPrompt = attemptResult?.test || promptInfo?.test || attempt.test;
           const liveOutput = orderedChannelOutput(tokensByAttempt.get(attempt.key));
-          const commentSignal = analyzeThinkingComments(attemptResult);
+          const commentSignal = isCodeBenchmark ? analyzeThinkingComments(attemptResult) : undefined;
           return {
             attempt,
             originalPrompt,
@@ -64,7 +83,7 @@ export function TaskResults({
             testPrompt,
             liveOutput,
             commentSignal,
-            thinkingInComments: commentSignalIsFlagged(commentSignal, commentSignalThreshold),
+            thinkingInComments: isCodeBenchmark && commentSignalIsFlagged(commentSignal, commentSignalThreshold),
             mergeKey: JSON.stringify({
               status: attempt.status,
               entryPoint: attempt.entryPoint,
@@ -112,8 +131,9 @@ export function TaskResults({
         const passedPasses = group.attempts.filter((attempt) => attempt.status === "pass").length;
         const assertsPassed = result?.tests.filter((test) => test.passed).length ?? 0;
         const assertScore = result?.tests.length ? assertsPassed / result.tests.length : 0;
-        const commentSignal = activeAttemptView?.commentSignal ?? analyzeThinkingComments(result);
-        const thinkingInComments = activeAttemptView?.thinkingInComments ?? commentSignalIsFlagged(commentSignal, commentSignalThreshold);
+        const commentSignal = activeAttemptView?.commentSignal ?? (isCodeBenchmark ? analyzeThinkingComments(result) : undefined);
+        const thinkingInComments = activeAttemptView?.thinkingInComments
+          ?? (isCodeBenchmark && commentSignalIsFlagged(commentSignal, commentSignalThreshold));
         const originalPrompt = activeAttemptView?.originalPrompt ?? result?.prompt ?? row.prompt;
         const instructionPrompt = activeAttemptView?.instructionPrompt
           ?? result?.instructionPrompt
@@ -153,9 +173,11 @@ export function TaskResults({
               <span className={`${groupStatus}-pill`}>{groupStatus === "running" ? "running" : groupStatus}</span>
               <strong>{group.taskId}</strong>
               <small>
-                #{group.index} · {row.entryPoint || group.entryPoint || "entry point pending"} · {passedPasses}/{completedPasses || 0} passes passing
+                #{group.index} · {(isCodeBenchmark
+                  ? (row.entryPoint || group.entryPoint)
+                  : (row.subtask || result?.subtask)) || (isCodeBenchmark ? "entry point pending" : "subtask pending")} · {passedPasses}/{completedPasses || 0} passes passing
                 {passTotal > 1 ? ` · ${completedPasses}/${passTotal} passes complete` : ""}
-                {result ? ` · ${passRangeLabel(activePassGroup.startPass, activePassGroup.endPass, passTotal)} · ${assertsPassed}/${result.tests.length} asserts · ${pct(assertScore)}` : ""}
+                {result ? ` · ${passRangeLabel(activePassGroup.startPass, activePassGroup.endPass, passTotal)} · ${assertsPassed}/${result.tests.length} ${labels.checks} · ${pct(assertScore)}` : ""}
                 {isRunning ? " · in progress" : result ? ` · ${groupedTaskDurationLabel(activePassGroup.attempts)}` : ""}
                 {thinkingInComments ? <span className="comment-flag"><AlertTriangle size={12} /> thinking in comments</span> : null}
               </small>
@@ -182,7 +204,7 @@ export function TaskResults({
                           <strong>{passRangeLabel(tabGroup.startPass, tabGroup.endPass, passTotal)}</strong>
                           <small>
                             {attempt.result
-                              ? `${attemptAssertsPassed}/${attempt.result.tests.length} asserts · ${groupedTaskDurationLabel(tabGroup.attempts)}`
+                              ? `${attemptAssertsPassed}/${attempt.result.tests.length} ${labels.checks} · ${groupedTaskDurationLabel(tabGroup.attempts)}`
                               : "in progress"}
                           </small>
                         </button>
@@ -200,13 +222,13 @@ export function TaskResults({
                 ) : null}
                 {result?.modelError ? <pre>{result.modelError}</pre> : null}
                 {thinkingInComments ? <details open><summary>Thinking in comments</summary><pre className="comment-signal">{formatCommentSignal(commentSignal, commentSignalThreshold)}</pre></details> : null}
-                {result ? <details open><summary>Assert ledger</summary>{result.tests.length ? result.tests.map((test, index) => <pre key={index} className={test.passed ? "assert-pass" : "assert-fail"}>{formatAssert(test)}</pre>) : <pre className={row.status === "error" ? "assert-error" : undefined}>No assertions ran.</pre>}</details> : null}
+                {result ? <details open><summary>{labels.ledger}</summary>{result.tests.length ? result.tests.map((test, index) => <pre key={index} className={test.passed ? "assert-pass" : "assert-fail"}>{formatAssert(test)}</pre>) : <pre className={row.status === "error" ? "assert-error" : undefined}>{labels.ledgerEmpty}</pre>}</details> : null}
                 <details open><summary>Prompt sent to model</summary><pre>{instructionPrompt || "Prompt pending."}</pre></details>
-                <details><summary>Original HumanEval task</summary><pre>{originalPrompt || "Task prompt pending."}</pre></details>
+                <details><summary>{labels.task}</summary><pre>{originalPrompt || "Task prompt pending."}</pre></details>
                 {result ? <details><summary>Thinking</summary><pre>{result.thinkingOutput || "No separate thinking stream captured."}</pre></details> : null}
                 {result ? <details><summary>Raw output</summary><pre>{result.rawOutput}</pre></details> : null}
-                {result ? <details><summary>Extracted code</summary><pre>{result.extractedCode}</pre></details> : null}
-                <details><summary>HumanEval tests</summary><pre>{testPrompt || "Tests pending."}</pre></details>
+                {result ? <details><summary>{labels.extracted}</summary><pre>{result.extractedCode}</pre></details> : null}
+                <details><summary>{labels.reference}</summary><pre>{testPrompt || (isCodeBenchmark ? "Tests pending." : "Expected answer pending.")}</pre></details>
                 {result ? <details open={row.status === "error"}><summary>Traceback / harness</summary><pre className={row.status === "error" ? "harness-error" : undefined}>{result.traceback || result.error || result.modelError || result.harnessStderr || (row.status === "error" ? "Harness failed without recording diagnostic details (legacy result)." : "No harness error.")}</pre></details> : null}
               </div>
             ) : null}
