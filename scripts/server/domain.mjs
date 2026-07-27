@@ -60,6 +60,7 @@ export function runSummary(run, { includeResults = true } = {}) {
     id: run.id,
     status: run.status,
     benchmark: run.benchmark || "humaneval",
+    benchmarkDataRevision: run.benchmarkDataRevision || null,
     model: run.model,
     baseUrl: run.baseUrl,
     createdAt: run.createdAt,

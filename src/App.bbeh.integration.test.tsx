@@ -57,6 +57,7 @@ const bbehRun = (overrides: RunFixture = {}): RunFixture => ({
   id: "bbeh-run-1",
   status: "completed",
   benchmark: "bbeh-mini",
+  benchmarkDataRevision: "80d12ca+linguini-single-blank-v1",
   model: "demo-model",
   createdAt: "2026-06-16T00:00:00.000Z",
   startedAt: "2026-06-16T00:00:00.000Z",
@@ -154,7 +155,7 @@ describe("App bbeh benchmark", () => {
     expect(systemPromptField.value).toBe(BBEH_SYSTEM_PROMPT);
     expect((screen.getByLabelText("Prompt template") as HTMLTextAreaElement).value).toContain("%problem%");
     expect(screen.queryByText(/Executes model-generated Python locally/)).not.toBeInTheDocument();
-    expect(screen.getAllByText("BBEH Mini (reasoning)").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("BBEH Mini (corrected)").length).toBeGreaterThan(0);
 
     await userEvent.type(screen.getByPlaceholderText("provider/model-name"), "demo-model");
     await userEvent.click(screen.getByRole("button", { name: /start run/i }));
@@ -185,6 +186,7 @@ describe("App bbeh benchmark", () => {
     await screen.findByText("bbeh_mini/0");
     expect(screen.getByText(/causal_understanding/)).toBeInTheDocument();
     expect(screen.getByText(/time_arithmetic/)).toBeInTheDocument();
+    expect(screen.getByText("BBEH Mini (corrected) · data 80d12ca+linguini-single-blank-v1")).toBeInTheDocument();
 
     // The qa metrics drop code-only panels and rename assertion labels.
     expect(screen.getAllByText("Answer checks").length).toBeGreaterThan(0);

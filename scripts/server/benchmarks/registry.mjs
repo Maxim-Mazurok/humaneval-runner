@@ -1,10 +1,17 @@
-import { bbehFullBenchmark, bbehMiniBenchmark } from "./bbeh.mjs";
+import {
+  bbehFullBenchmark,
+  bbehFullOfficialBenchmark,
+  bbehMiniBenchmark,
+  bbehMiniOfficialBenchmark
+} from "./bbeh.mjs";
 import { humanEvalBenchmark } from "./humaneval.mjs";
 
 export const benchmarks = new Map([
   [humanEvalBenchmark.id, humanEvalBenchmark],
   [bbehMiniBenchmark.id, bbehMiniBenchmark],
-  [bbehFullBenchmark.id, bbehFullBenchmark]
+  [bbehMiniOfficialBenchmark.id, bbehMiniOfficialBenchmark],
+  [bbehFullBenchmark.id, bbehFullBenchmark],
+  [bbehFullOfficialBenchmark.id, bbehFullOfficialBenchmark]
 ]);
 
 export function getBenchmark(benchmarkId) {
@@ -21,6 +28,7 @@ export function benchmarkSummaries() {
     id: benchmark.id,
     label: benchmark.label,
     kind: benchmark.kind,
+    dataRevision: benchmark.dataRevision || null,
     defaultSystemPrompt: benchmark.defaultSystemPrompt,
     defaultPromptTemplate: benchmark.defaultPromptTemplate
   }));

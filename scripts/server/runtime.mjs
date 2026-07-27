@@ -535,6 +535,7 @@ export function createRuntimeServer({
       startedAt: null,
       finishedAt: null,
       benchmark: benchmark.id,
+      benchmarkDataRevision: benchmark.dataRevision || null,
       model: String(config.model || "").trim(),
       baseUrl,
       apiKey: String(config.apiKey || "").trim(),
@@ -597,6 +598,15 @@ export function createRuntimeServer({
     syncRunCountsFromResults(run);
     if (!runCanResume(run)) {
       throw new Error("Run cannot be resumed.");
+    }
+    const benchmark = getBenchmark(run.benchmark);
+    const currentBenchmarkDataRevision = benchmark.dataRevision || null;
+    const runBenchmarkDataRevision = run.benchmarkDataRevision || null;
+    if (runBenchmarkDataRevision !== currentBenchmarkDataRevision) {
+      throw new Error(
+        `Run uses benchmark data revision "${runBenchmarkDataRevision || "unversioned"}", `
+        + `but the current revision is "${currentBenchmarkDataRevision || "unversioned"}". Start a new run instead.`
+      );
     }
     run.cancelled = false;
     run.status = "queued";

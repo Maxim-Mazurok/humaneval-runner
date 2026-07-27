@@ -1,5 +1,10 @@
 import { promises as fs } from "node:fs";
 import { dirname, join } from "node:path";
+import {
+  applyBbehDataCorrection,
+  bbehDataRevision,
+  bbehOfficialDataRevision
+} from "./bbehDataCorrections.mjs";
 import { evaluateCorrectness, preprocessReference, preprocessSample } from "./bbehEvaluate.mjs";
 
 const bbehRawBase = "https://raw.githubusercontent.com/google-deepmind/bbeh/main/bbeh";
@@ -85,16 +90,17 @@ async function fetchJsonCached(cachePath, url, fetchImplementation) {
   }
 }
 
-function toProblem(example, taskId, subtask) {
-  return {
+function toProblem(example, taskId, subtask, applyDataCorrections) {
+  const problem = {
     task_id: taskId,
     prompt: example.input,
     target: String(example.target),
     subtask
   };
+  return applyDataCorrections ? applyBbehDataCorrection(problem) : problem;
 }
 
-async function loadFullProblems({ cacheDir, fetchImplementation = fetch }) {
+async function loadFullProblems({ cacheDir, fetchImplementation = fetch, applyDataCorrections = true }) {
   const bbehCacheDir = join(cacheDir, "bbeh");
   await fs.mkdir(bbehCacheDir, { recursive: true });
   const problems = [];
@@ -106,13 +112,13 @@ async function loadFullProblems({ cacheDir, fetchImplementation = fetch }) {
     );
     const subtask = taskName.replace(/^bbeh_/, "");
     for (const [exampleIndex, example] of data.examples.entries()) {
-      problems.push(toProblem(example, `${taskName}/${exampleIndex}`, subtask));
+      problems.push(toProblem(example, `${taskName}/${exampleIndex}`, subtask, applyDataCorrections));
     }
   }
   return problems;
 }
 
-async function loadMiniProblems({ cacheDir, fetchImplementation = fetch }) {
+async function loadMiniProblems({ cacheDir, fetchImplementation = fetch, applyDataCorrections = true }) {
   const bbehCacheDir = join(cacheDir, "bbeh");
   await fs.mkdir(bbehCacheDir, { recursive: true });
   const data = await fetchJsonCached(
@@ -123,19 +129,22 @@ async function loadMiniProblems({ cacheDir, fetchImplementation = fetch }) {
   // The published mini data has no reliable per-example subtask labels (one
   // stray "subtask" key exists in 460 examples), so label all examples "mini".
   return data.examples.map((example, exampleIndex) => (
-    toProblem(example, `bbeh_mini/${exampleIndex}`, "mini")
+    toProblem(example, `bbeh_mini/${exampleIndex}`, "mini", applyDataCorrections)
   ));
 }
 
-function createBbehBenchmark(id, label, loadProblems) {
+function createBbehBenchmark(id, label, loadProblemData, { applyDataCorrections, dataRevision }) {
   return {
     id,
     label,
     kind: "qa",
+    dataRevision,
     taskIdPattern: null,
     defaultSystemPrompt: bbehDefaultSystemPrompt,
     defaultPromptTemplate: bbehDefaultPromptTemplate,
-    loadProblems,
+    loadProblems(options) {
+      return loadProblemData({ ...options, applyDataCorrections });
+    },
     problemSummary(problem) {
       return { taskId: problem.task_id, subtask: problem.subtask };
     },
@@ -165,5 +174,20 @@ function createBbehBenchmark(id, label, loadProblems) {
   };
 }
 
-export const bbehFullBenchmark = createBbehBenchmark("bbeh-full", "BBEH (full)", loadFullProblems);
-export const bbehMiniBenchmark = createBbehBenchmark("bbeh-mini", "BBEH Mini", loadMiniProblems);
+const correctedDataOptions = { applyDataCorrections: true, dataRevision: bbehDataRevision };
+const officialDataOptions = { applyDataCorrections: false, dataRevision: bbehOfficialDataRevision };
+
+export const bbehMiniBenchmark = createBbehBenchmark("bbeh-mini", "BBEH Mini (corrected)", loadMiniProblems, correctedDataOptions);
+export const bbehFullBenchmark = createBbehBenchmark("bbeh-full", "BBEH Full (corrected)", loadFullProblems, correctedDataOptions);
+export const bbehMiniOfficialBenchmark = createBbehBenchmark(
+  "bbeh-mini-official",
+  "BBEH Mini (official data)",
+  loadMiniProblems,
+  officialDataOptions
+);
+export const bbehFullOfficialBenchmark = createBbehBenchmark(
+  "bbeh-full-official",
+  "BBEH Full (official data)",
+  loadFullProblems,
+  officialDataOptions
+);

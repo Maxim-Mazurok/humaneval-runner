@@ -1,4 +1,4 @@
-import type { BenchRun } from "../domain/benchmark";
+import { benchmarkOption, runBenchmarkId, type BenchRun } from "../domain/benchmark";
 import { pct, runTotal } from "../domain/runs";
 
 export function StatusSummary({
@@ -16,6 +16,11 @@ export function StatusSummary({
         <div>
           <p>{selectedRun ? selectedRun.status : "idle"}</p>
           <h2>{selectedRun ? selectedRun.model : "Ready for an OpenAI-compatible model"}</h2>
+          {selectedRun?.benchmarkDataRevision ? (
+            <small className="benchmark-revision">
+              {benchmarkOption(runBenchmarkId(selectedRun)).label} · data {selectedRun.benchmarkDataRevision}
+            </small>
+          ) : null}
         </div>
         <div className="bench-score">
           <strong>{selectedRun ? pct(selectedRun.liveScore) : "0%"}</strong>

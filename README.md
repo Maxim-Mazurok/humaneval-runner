@@ -5,8 +5,8 @@ A local web workbench for running LLM benchmarks against any OpenAI-compatible
 
 - **HumanEval** — code generation, scored by executing the official tests.
 - **BBEH Mini / BBEH Full** — [BIG-Bench Extra Hard](https://github.com/google-deepmind/bbeh)
-  reasoning tasks, scored with a faithful port of the official
-  `evaluate.py` fuzzy answer matching.
+  reasoning tasks, with corrected and official-data variants scored by a
+  faithful port of the official `evaluate.py` fuzzy answer matching.
 
 The core workflow is simple: pick a benchmark, point the app at a model
 endpoint, edit the system prompt or user prompt template, start a subset or
@@ -18,8 +18,9 @@ Each run uses exactly one benchmark.
 ## Features
 
 - React/Vite GUI for configuring benchmark runs.
-- Benchmark selector: HumanEval (code) or BBEH Mini/Full (reasoning), with
-  per-benchmark default prompts and answer extraction.
+- Benchmark selector: HumanEval (code) or corrected/official-data BBEH
+  Mini/Full (reasoning), with per-benchmark default prompts and answer
+  extraction.
 - OpenAI-compatible streaming chat completions support.
 - Editable system prompt and per-benchmark prompt template.
 - Full runs or targeted task lists such as `0, 1, 2` or `10-25`.
@@ -110,6 +111,25 @@ For BBEH, answers are extracted from the model output with the official BBEH
 rules (looking for `The answer is: ...` style suffixes, then normalizing), and
 scored with the official fuzzy matcher. The default BBEH prompt template asks
 the model to finish with `The answer is: <answer>`.
+
+### BBEH data modes
+
+The default `BBEH Mini (corrected)` and `BBEH Full (corrected)` options repair
+the seven duplicated Linguini records that the upstream task documentation
+identifies as problematic. Their shared ten-blank prompt is narrowed in memory
+to the single blank associated with each scalar target. BBEH Mini contains two
+of those records: `bbeh_mini/14` and `bbeh_mini/258`.
+
+Use `BBEH Mini (official data)` or `BBEH Full (official data)` when byte-for-byte
+upstream prompts are required for leaderboard reproduction. These variants
+preserve the problematic multi-blank prompt and its scalar target. Both modes
+use the same official fuzzy answer scorer.
+
+Downloaded files under `.cache/bbeh/` always remain unmodified upstream data.
+Corrections are source-controlled and applied only to in-memory problem objects.
+Each run stores its benchmark data revision; an incomplete run cannot be resumed
+after that revision changes because doing so would mix prompts from two dataset
+versions.
 
 Set `Parallel` to the number of benchmark tasks to solve at once. The default is
 `1`, which preserves sequential execution. Higher values send multiple model

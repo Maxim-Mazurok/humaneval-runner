@@ -13,7 +13,9 @@ export type RunNotificationSummary = {
 const notificationBenchmarkLabels: Record<string, string> = {
   humaneval: "HumanEval",
   "bbeh-mini": "BBEH Mini",
-  "bbeh-full": "BBEH"
+  "bbeh-mini-official": "BBEH Mini (official)",
+  "bbeh-full": "BBEH",
+  "bbeh-full-official": "BBEH (official)"
 };
 
 export function notificationBenchmarkLabel(benchmark?: string) {

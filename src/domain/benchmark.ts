@@ -1,7 +1,7 @@
 export const BENCH_API = "http://localhost:8787";
 export const SIDEBAR_COLLAPSED_STORAGE_KEY = "humaneval.sidebar.collapsed";
 
-export type BenchmarkId = "humaneval" | "bbeh-mini" | "bbeh-full";
+export type BenchmarkId = "humaneval" | "bbeh-mini" | "bbeh-mini-official" | "bbeh-full" | "bbeh-full-official";
 export type BenchmarkKind = "code" | "qa";
 
 export const BBEH_SYSTEM_PROMPT = `You are solving a hard reasoning problem.
@@ -63,7 +63,17 @@ export const BENCHMARK_OPTIONS: BenchmarkOption[] = [
   },
   {
     id: "bbeh-mini",
-    label: "BBEH Mini (reasoning)",
+    label: "BBEH Mini (corrected)",
+    kind: "qa",
+    datasetSize: 460,
+    systemPrompt: BBEH_SYSTEM_PROMPT,
+    promptTemplate: BBEH_PROMPT_TEMPLATE,
+    taskNumbersPlaceholder: "0, 1, 2 or 10-25. Empty uses start/limit.",
+    promptTemplateHint: "Use %problem% where the BBEH task input should be inserted."
+  },
+  {
+    id: "bbeh-mini-official",
+    label: "BBEH Mini (official data)",
     kind: "qa",
     datasetSize: 460,
     systemPrompt: BBEH_SYSTEM_PROMPT,
@@ -73,7 +83,17 @@ export const BENCHMARK_OPTIONS: BenchmarkOption[] = [
   },
   {
     id: "bbeh-full",
-    label: "BBEH Full (reasoning)",
+    label: "BBEH Full (corrected)",
+    kind: "qa",
+    datasetSize: 4520,
+    systemPrompt: BBEH_SYSTEM_PROMPT,
+    promptTemplate: BBEH_PROMPT_TEMPLATE,
+    taskNumbersPlaceholder: "0, 1, 2 or 10-25. Empty uses start/limit.",
+    promptTemplateHint: "Use %problem% where the BBEH task input should be inserted."
+  },
+  {
+    id: "bbeh-full-official",
+    label: "BBEH Full (official data)",
     kind: "qa",
     datasetSize: 4520,
     systemPrompt: BBEH_SYSTEM_PROMPT,
@@ -155,6 +175,7 @@ export type BenchRun = {
   id: string;
   status: string;
   benchmark?: string;
+  benchmarkDataRevision?: string | null;
   model: string;
   baseUrl: string;
   createdAt: string;

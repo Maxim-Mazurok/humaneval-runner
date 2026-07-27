@@ -4,6 +4,7 @@ import { promises as fs } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { bbehDataRevision } from "./benchmarks/bbehDataCorrections.mjs";
 import { createRuntimeServer } from "./runtime.mjs";
 
 const problems = [
@@ -360,7 +361,14 @@ describe("runtime server", () => {
     const { apiUrl } = await startRuntime(rootDir);
 
     const benchmarksResponse = await fetch(`${apiUrl}/api/benchmarks`).then((response) => response.json());
-    expect(benchmarksResponse.benchmarks.map((benchmark) => benchmark.id)).toEqual(["humaneval", "bbeh-mini", "bbeh-full"]);
+    expect(benchmarksResponse.benchmarks.map((benchmark) => benchmark.id)).toEqual([
+      "humaneval",
+      "bbeh-mini",
+      "bbeh-mini-official",
+      "bbeh-full",
+      "bbeh-full-official"
+    ]);
+    expect(benchmarksResponse.benchmarks.find((benchmark) => benchmark.id === "bbeh-mini").dataRevision).toBe(bbehDataRevision);
 
     const problemsResponse = await fetch(`${apiUrl}/api/benchmarks/bbeh-mini/problems`).then((response) => response.json());
     expect(problemsResponse).toMatchObject({ benchmark: "bbeh-mini", total: 2 });
@@ -368,6 +376,7 @@ describe("runtime server", () => {
 
     const created = await createRun(apiUrl, model.baseUrl, { benchmark: "bbeh-mini" });
     expect(created.benchmark).toBe("bbeh-mini");
+    expect(created.benchmarkDataRevision).toBe(bbehDataRevision);
     const detail = await waitForStatus(apiUrl, created.id, ["completed"]);
     expect(detail).toMatchObject({
       completed: 2,
@@ -389,9 +398,49 @@ describe("runtime server", () => {
     expect(wrong).toMatchObject({ passed: false, extractedCode: "8", expectedAnswer: "7" });
     expect(wrong.tests[0]).toMatchObject({ passed: false, actual: "8", expected: "7" });
     expect(detail.config).toMatchObject({ benchmark: "bbeh-mini" });
+    expect(detail.benchmarkDataRevision).toBe(bbehDataRevision);
     // BBEH default prompts flow through when the client does not override them.
     expect(correct.instructionPrompt).toContain("The answer is: <answer>");
     expect(correct.instructionPrompt).toContain("Is water wet?");
+
+    const runDirectories = await fs.readdir(join(rootDir, "benchmark-runs"));
+    await vi.waitFor(async () => {
+      const runJson = JSON.parse(await fs.readFile(join(rootDir, "benchmark-runs", runDirectories[0], "run.json"), "utf8"));
+      expect(runJson.benchmarkDataRevision).toBe(bbehDataRevision);
+    });
+  });
+
+  it("rejects resuming a BBEH run created with an older data revision", async () => {
+    const rootDir = await makeRootDir();
+    await fs.mkdir(join(rootDir, ".cache", "bbeh"), { recursive: true });
+    await fs.writeFile(join(rootDir, ".cache", "bbeh", "mini.json"), JSON.stringify({
+      examples: [{ input: "Is water wet?", target: "Yes" }]
+    }));
+    const hangingResponses = [];
+    const model = await startModelServer([
+      (request, response) => {
+        response.writeHead(200, { "content-type": "text/event-stream" });
+        response.write(`data: ${JSON.stringify({ choices: [{ delta: { content: "partial" } }] })}\n\n`);
+        hangingResponses.push(response);
+        request.on("close", () => response.end());
+      }
+    ]);
+    const { app, apiUrl } = await startRuntime(rootDir);
+
+    const created = await createRun(apiUrl, model.baseUrl, { benchmark: "bbeh-mini" });
+    await vi.waitFor(() => expect(hangingResponses).toHaveLength(1));
+    await fetch(`${apiUrl}/api/humaneval/runs/${created.id}/cancel`, { method: "POST" });
+    await waitForStatus(apiUrl, created.id, ["cancelled"]);
+
+    app.runs.get(created.id).benchmarkDataRevision = null;
+    const historicalRun = await fetch(`${apiUrl}/api/humaneval/runs/${created.id}`).then((response) => response.json());
+    expect(historicalRun.status).toBe("cancelled");
+
+    const resumeResponse = await fetch(`${apiUrl}/api/humaneval/runs/${created.id}/resume`, { method: "POST" });
+    expect(resumeResponse.status).toBe(500);
+    await expect(resumeResponse.json()).resolves.toEqual({
+      error: `Run uses benchmark data revision "unversioned", but the current revision is "${bbehDataRevision}". Start a new run instead.`
+    });
   });
 
   it("reloads persisted runs after a restart with results and config intact", async () => {
