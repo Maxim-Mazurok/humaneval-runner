@@ -40,3 +40,7 @@ Conclusions:
 
 Conclusions:
 - Surprisingly fast and strong, nothing like the old GPT-2
+
+## Devstral-Small-2-24B-Instruct-2512
+
+- 84.1% - thinking not supported, 16384 tokens, 1 pass, Devstral-Small-2-24B-Instruct-2512-4bit, 1h15m (failed: 10, 32, 54, 65, 74, 75, 91, 99, 102, 108, 115, 120, 121, 126, 127, 129, 130, 132, 135, 144, 145, 147, 160, 161, 163; errored: 96)
