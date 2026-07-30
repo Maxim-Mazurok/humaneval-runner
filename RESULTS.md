@@ -49,5 +49,5 @@ Conclusions:
 
 ## BBEH
 
-- [WIP 25/460 1.7%-96.3%] - 32% - 16384 thinking, 18432 tokens, 1 pass, Qwen3.6-27B-MXFP4, 8h56m, `BBEH Mini (corrected) · data 80d12ca+linguini-single-blank-v1`
+- [WIP 52/460 4.6%-93.3%] - 40.4% - 16384 thinking, 18432 tokens, 1 pass, Qwen3.6-27B-MXFP4, 18h32m, `BBEH Mini (corrected) · data 80d12ca+linguini-single-blank-v1`
 - [WIP 55/460 2.2%-90.2%] - 18.2% - 8192? thinking, 16384 tokens, 1 pass, gpt-oss-20b-MXFP4-Q8, 2h15m, `BBEH Mini (official data)`
