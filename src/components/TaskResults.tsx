@@ -15,6 +15,10 @@ import { recordTaskResultsRenderMeasurement, textByteLength } from "../domain/pe
 import { formatAssert, formatDuration, pct, runPassCount } from "../domain/runs";
 import { orderedChannelOutput } from "../domain/tasks";
 
+function primaryResultStatus(status: TaskGroup["attempts"][number]["status"]) {
+  return status === "loop" ? "error" : status;
+}
+
 function LoopHighlightedText({
   text,
   loopDetection,
@@ -225,7 +229,10 @@ export function TaskResults({
           <article className={`result-row ${groupIsRunning ? "in-progress" : ""}`} key={group.taskId}>
             <button type="button" onClick={() => setExpanded((prev) => ({ ...prev, [group.taskId]: !isOpen }))}>
               {isOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-              <span className={`${groupStatus}-pill`}>{groupStatus === "running" ? "running" : groupStatus}</span>
+              <span className="status-badges">
+                <span className={`${primaryResultStatus(groupStatus)}-pill`}>{primaryResultStatus(groupStatus)}</span>
+                {group.attempts.some((attempt) => attempt.status === "loop") ? <span className="loop-pill">loop</span> : null}
+              </span>
               <strong>{group.taskId}</strong>
               <small>
                 #{group.index} · {(isCodeBenchmark
@@ -255,8 +262,11 @@ export function TaskResults({
                           type="button"
                           onClick={() => setSelectedPassByTask((prev) => ({ ...prev, [group.taskId]: tabGroup.startPass }))}
                         >
-                          <span className={`${tabGroup.status}-pill`}>
-                            {tabGroup.status === "running" ? "running" : tabGroup.status}
+                          <span className="status-badges">
+                            <span className={`${primaryResultStatus(tabGroup.status)}-pill`}>
+                              {primaryResultStatus(tabGroup.status)}
+                            </span>
+                            {tabGroup.status === "loop" ? <span className="loop-pill">loop</span> : null}
                           </span>
                           <strong>{passRangeLabel(tabGroup.startPass, tabGroup.endPass, passTotal)}</strong>
                           <small>

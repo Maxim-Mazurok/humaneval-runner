@@ -92,6 +92,25 @@ function loopingModelHandler(req, res) {
   res.end();
 }
 
+function loopingThenGoodModelHandler(req, res, body) {
+  const repeatedCycle = [
+    "Reconsider every available choice and compare each stated condition before selecting the final answer",
+    "the first condition supports one option while the second condition rules that same option out",
+    "therefore the unresolved comparison begins again from the start"
+  ].join(". ");
+  const entryPoint = entryPointFromRequest(body);
+  res.writeHead(200, { "content-type": "text/event-stream" });
+  for (let repetitionIndex = 0; repetitionIndex < 5; repetitionIndex += 1) {
+    res.write(`data: ${JSON.stringify({ choices: [{ delta: { reasoning: `${repeatedCycle}. ` } }] })}\n\n`);
+  }
+  for (const text of ["```python\n", `${goodSolutions[entryPoint]}\n`, "```"]) {
+    res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: text } }] })}\n\n`);
+  }
+  res.write(`data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: "stop" }] })}\n\n`);
+  res.write("data: [DONE]\n\n");
+  res.end();
+}
+
 // Serves an OpenAI-compatible /chat/completions endpoint. `handlers` are
 // consumed one per request; the last handler repeats for later requests.
 async function startModelServer(handlers) {
@@ -204,6 +223,27 @@ describe("runtime server", () => {
     const penaltyEvents = detail.events.filter((event) => event.type === "repetition-penalty-updated");
     expect(penaltyEvents.map((event) => event.data.nextRepetitionPenalty)).toEqual([0.55, 0.52]);
     expect(detail.events.some((event) => event.type === "loop-detected")).toBe(true);
+  });
+
+  it("does not stop loops when adaptive repetition penalties are disabled", async () => {
+    const rootDir = await makeRootDir();
+    const model = await startModelServer([loopingThenGoodModelHandler]);
+    const { apiUrl } = await startRuntime(rootDir);
+
+    const created = await createRun(apiUrl, model.baseUrl, {
+      adaptiveRepetitionPenalty: false,
+      testNumbers: "0"
+    });
+    const detail = await waitForStatus(apiUrl, created.id, ["completed"]);
+
+    expect(detail.results[0]).toMatchObject({
+      taskId: "HumanEval/0",
+      passed: true,
+      finishReason: "stop"
+    });
+    expect(detail.results[0].looping).toBeUndefined();
+    expect(detail.results[0].loopDetection).toBeUndefined();
+    expect(detail.events.some((event) => event.type === "loop-detected")).toBe(false);
   });
 
   it("completes a full run: scores, events, artifacts, task logs, SSE replay", async () => {

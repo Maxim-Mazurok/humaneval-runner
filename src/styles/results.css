@@ -90,6 +90,12 @@ pre {
   font-weight: 900;
 }
 
+.status-badges {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
 .pass-pill,
 .fail-pill,
 .error-pill,

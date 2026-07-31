@@ -343,9 +343,13 @@ describe("App notifications", () => {
 
     const { container } = render(<App />);
 
-    expect(await screen.findByText("loop")).toHaveClass("loop-pill");
+    const taskButton = await screen.findByRole("button", { name: /HumanEval\/7/i });
+    const taskBadges = taskButton.querySelector(".status-badges");
+    expect(taskBadges).toHaveTextContent("errorloop");
+    expect(within(taskButton).getByText("error")).toHaveClass("error-pill");
+    expect(within(taskButton).getByText("loop")).toHaveClass("loop-pill");
     expect(screen.getByText("Looping")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: /HumanEval\/7/i }));
+    await userEvent.click(taskButton);
     expect(container.querySelectorAll(".loop-highlight")).toHaveLength(6);
     expect(screen.getByText("Loop 1 start")).toBeInTheDocument();
     expect(screen.getByText("Loop 6 end")).toBeInTheDocument();
