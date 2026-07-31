@@ -17,6 +17,8 @@ export default function App() {
     timeoutSeconds,
     parallelTasks,
     passCount,
+    adaptiveRepetitionPenalty,
+    repetitionPenalty,
     sampleLimit,
     startIndex,
     testNumbers,
@@ -41,6 +43,7 @@ export default function App() {
     sidebarCollapsed,
     selectedPassByTask,
     commentSignalThreshold,
+    currentTimeMilliseconds,
     setBenchmark,
     setBaseUrl,
     setApiKey,
@@ -49,6 +52,8 @@ export default function App() {
     setTimeoutSeconds,
     setParallelTasks,
     setPassCount,
+    setAdaptiveRepetitionPenalty,
+    setRepetitionPenalty,
     setSampleLimit,
     setStartIndex,
     setTestNumbers,
@@ -92,6 +97,8 @@ export default function App() {
           timeoutSeconds={timeoutSeconds}
           parallelTasks={parallelTasks}
           passCount={passCount}
+          adaptiveRepetitionPenalty={adaptiveRepetitionPenalty}
+          repetitionPenalty={repetitionPenalty}
           sampleLimit={sampleLimit}
           startIndex={startIndex}
           testNumbers={testNumbers}
@@ -112,6 +119,8 @@ export default function App() {
           setTimeoutSeconds={setTimeoutSeconds}
           setParallelTasks={setParallelTasks}
           setPassCount={setPassCount}
+          setAdaptiveRepetitionPenalty={setAdaptiveRepetitionPenalty}
+          setRepetitionPenalty={setRepetitionPenalty}
           setSampleLimit={setSampleLimit}
           setStartIndex={setStartIndex}
           setTestNumbers={setTestNumbers}
@@ -156,6 +165,7 @@ export default function App() {
           expanded={expanded}
           selectedPassByTask={selectedPassByTask}
           commentSignalThreshold={commentSignalThreshold}
+          currentTimeMilliseconds={currentTimeMilliseconds}
           setExpanded={setExpanded}
           setSelectedPassByTask={setSelectedPassByTask}
         />

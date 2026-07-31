@@ -112,6 +112,8 @@ export function runtimeConfigFromPersistedRun(persisted) {
     systemPrompt: String(persistedConfig.systemPrompt ?? persisted.systemPrompt ?? defaultSystemPrompt),
     promptTemplate: String(persistedConfig.promptTemplate ?? persisted.promptTemplate ?? defaultPromptTemplate),
     extraBody: persistedConfig.extraBody && typeof persistedConfig.extraBody === "object" ? persistedConfig.extraBody : {},
+    adaptiveRepetitionPenalty: Boolean(persistedConfig.adaptiveRepetitionPenalty),
+    repetitionPenalty: Number(persistedConfig.repetitionPenalty ?? 1),
     parallelTasks: normalizeParallelTasks(persistedConfig.parallelTasks ?? persisted.parallelTasks),
     passCount: normalizePassCount(persistedConfig.passCount ?? persisted.passCount)
   };

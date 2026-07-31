@@ -1,5 +1,5 @@
 import { AlertTriangle, ChevronDown, ChevronRight } from "lucide-react";
-import { runBenchmarkKind, type BenchRun, type TaskGroup, type TaskPromptInfo, type TokenEvent } from "../domain/benchmark";
+import { runBenchmarkKind, type BenchResult, type BenchRun, type TaskGroup, type TaskPromptInfo, type TokenEvent } from "../domain/benchmark";
 import {
   analyzeThinkingComments,
   commentSignalIsFlagged,
@@ -12,8 +12,50 @@ import {
 } from "../domain/passes";
 import { buildInstructionPromptFallback } from "../domain/prompts";
 import { recordTaskResultsRenderMeasurement, textByteLength } from "../domain/performanceMetrics";
-import { formatAssert, pct, runPassCount } from "../domain/runs";
+import { formatAssert, formatDuration, pct, runPassCount } from "../domain/runs";
 import { orderedChannelOutput } from "../domain/tasks";
+
+function LoopHighlightedText({
+  text,
+  loopDetection,
+  channel
+}: {
+  text: string;
+  loopDetection?: BenchResult["loopDetection"];
+  channel: string;
+}) {
+  if (loopDetection?.channel !== channel || !loopDetection.occurrences?.length) {
+    return <pre>{text}</pre>;
+  }
+  const occurrences = loopDetection.occurrences
+    .filter(({ start, end }) => (
+      Number.isInteger(start)
+      && Number.isInteger(end)
+      && start >= 0
+      && end > start
+      && end <= text.length
+    ))
+    .sort((left, right) => left.start - right.start);
+  if (!occurrences.length) return <pre>{text}</pre>;
+
+  const content: React.ReactNode[] = [];
+  let cursor = 0;
+  occurrences.forEach((occurrence, index) => {
+    if (occurrence.start < cursor) return;
+    if (occurrence.start > cursor) content.push(text.slice(cursor, occurrence.start));
+    const repetitionNumber = index + 1;
+    content.push(
+      <mark className="loop-highlight" key={`${occurrence.start}-${occurrence.end}`}>
+        <span className="loop-boundary">Loop {repetitionNumber} start</span>
+        {text.slice(occurrence.start, occurrence.end)}
+        <span className="loop-boundary loop-boundary-end">Loop {repetitionNumber} end</span>
+      </mark>
+    );
+    cursor = occurrence.end;
+  });
+  if (cursor < text.length) content.push(text.slice(cursor));
+  return <pre>{content}</pre>;
+}
 
 export function TaskResults({
   taskGroups,
@@ -23,6 +65,7 @@ export function TaskResults({
   expanded,
   selectedPassByTask,
   commentSignalThreshold,
+  currentTimeMilliseconds,
   setExpanded,
   setSelectedPassByTask
 }: {
@@ -33,12 +76,14 @@ export function TaskResults({
   expanded: Record<string, boolean>;
   selectedPassByTask: Record<string, number>;
   commentSignalThreshold: number;
+  currentTimeMilliseconds: number;
   setExpanded: (updater: (previous: Record<string, boolean>) => Record<string, boolean>) => void;
   setSelectedPassByTask: (updater: (previous: Record<string, number>) => Record<string, number>) => void;
 }) {
   const performanceMetricsEnabled = typeof window !== "undefined" && Boolean(window.humanEvalPerformanceMetrics);
   const benchmarkKind = runBenchmarkKind(selectedRun);
   const isCodeBenchmark = benchmarkKind === "code";
+  const adaptiveRepetitionPenalty = Boolean(selectedRun?.config?.adaptiveRepetitionPenalty);
   const labels = isCodeBenchmark
     ? {
         ledger: "Assert ledger",
@@ -125,7 +170,9 @@ export function TaskResults({
             ? "pass"
             : group.attempts.some((attempt) => attempt.status === "fail")
               ? "fail"
-              : "error";
+              : group.attempts.some((attempt) => attempt.status === "loop")
+                ? "loop"
+                : "error";
         const isOpen = expanded[group.taskId] ?? groupIsRunning;
         const completedPasses = group.attempts.filter((attempt) => attempt.status !== "running").length;
         const passedPasses = group.attempts.filter((attempt) => attempt.status === "pass").length;
@@ -139,6 +186,14 @@ export function TaskResults({
           ?? result?.instructionPrompt
           ?? buildInstructionPromptFallback(selectedRun, originalPrompt);
         const testPrompt = activeAttemptView?.testPrompt ?? result?.test ?? row.test;
+        const runningStartedAtMilliseconds = row.startedAt ? new Date(row.startedAt).getTime() : Number.NaN;
+        const runningDuration = isRunning && Number.isFinite(runningStartedAtMilliseconds)
+          ? formatDuration(Math.max(currentTimeMilliseconds - runningStartedAtMilliseconds, 0))
+          : null;
+        const displayedRepetitionPenalty = adaptiveRepetitionPenalty
+          && typeof (isRunning ? row.repetitionPenalty : result?.repetitionPenalty) === "number"
+          ? (isRunning ? row.repetitionPenalty : result?.repetitionPenalty)
+          : null;
         if (performanceMetricsEnabled && isOpen) {
           detailPanelCount += 1;
           visiblePreTextBytes += textByteLength(instructionPrompt || "Prompt pending.");
@@ -178,7 +233,9 @@ export function TaskResults({
                   : (row.subtask || result?.subtask)) || (isCodeBenchmark ? "entry point pending" : "subtask pending")} · {passedPasses}/{completedPasses || 0} passes passing
                 {passTotal > 1 ? ` · ${completedPasses}/${passTotal} passes complete` : ""}
                 {result ? ` · ${passRangeLabel(activePassGroup.startPass, activePassGroup.endPass, passTotal)} · ${assertsPassed}/${result.tests.length} ${labels.checks} · ${pct(assertScore)}` : ""}
-                {isRunning ? " · in progress" : result ? ` · ${groupedTaskDurationLabel(activePassGroup.attempts)}` : ""}
+                {isRunning ? ` · ${runningDuration ?? "in progress"}` : result ? ` · ${groupedTaskDurationLabel(activePassGroup.attempts)}` : ""}
+                {displayedRepetitionPenalty !== null ? ` · penalty ${displayedRepetitionPenalty}` : ""}
+                {isRunning && runningDuration ? " · in progress" : ""}
                 {thinkingInComments ? <span className="comment-flag"><AlertTriangle size={12} /> thinking in comments</span> : null}
               </small>
             </button>
@@ -221,12 +278,13 @@ export function TaskResults({
                   </details>
                 ) : null}
                 {result?.modelError ? <pre>{result.modelError}</pre> : null}
+                {result?.loopDetection ? <pre className="loop-signal">Detected {result.loopDetection.repetitions} repeated cycles in {result.loopDetection.channel} ({result.loopDetection.patternWords} words per cycle). Generation stopped early.</pre> : null}
                 {thinkingInComments ? <details open><summary>Thinking in comments</summary><pre className="comment-signal">{formatCommentSignal(commentSignal, commentSignalThreshold)}</pre></details> : null}
                 {result ? <details open><summary>{labels.ledger}</summary>{result.tests.length ? result.tests.map((test, index) => <pre key={index} className={test.passed ? "assert-pass" : "assert-fail"}>{formatAssert(test)}</pre>) : <pre className={row.status === "error" ? "assert-error" : undefined}>{labels.ledgerEmpty}</pre>}</details> : null}
                 <details open><summary>Prompt sent to model</summary><pre>{instructionPrompt || "Prompt pending."}</pre></details>
                 <details><summary>{labels.task}</summary><pre>{originalPrompt || "Task prompt pending."}</pre></details>
-                {result ? <details><summary>Thinking</summary><pre>{result.thinkingOutput || "No separate thinking stream captured."}</pre></details> : null}
-                {result ? <details><summary>Raw output</summary><pre>{result.rawOutput}</pre></details> : null}
+                {result ? <details><summary>Thinking</summary><LoopHighlightedText channel="thinking" loopDetection={result.loopDetection} text={result.thinkingOutput || "No separate thinking stream captured."} /></details> : null}
+                {result ? <details><summary>Raw output</summary><LoopHighlightedText channel="output" loopDetection={result.loopDetection} text={result.rawOutput} /></details> : null}
                 {result ? <details><summary>{labels.extracted}</summary><pre>{result.extractedCode}</pre></details> : null}
                 <details><summary>{labels.reference}</summary><pre>{testPrompt || (isCodeBenchmark ? "Tests pending." : "Expected answer pending.")}</pre></details>
                 {result ? <details open={row.status === "error"}><summary>Traceback / harness</summary><pre className={row.status === "error" ? "harness-error" : undefined}>{result.traceback || result.error || result.modelError || result.harnessStderr || (row.status === "error" ? "Harness failed without recording diagnostic details (legacy result)." : "No harness error.")}</pre></details> : null}

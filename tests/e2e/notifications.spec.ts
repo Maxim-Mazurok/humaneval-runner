@@ -1,5 +1,7 @@
 import { expect, test } from "@playwright/test";
 
+const benchmarkApiUrl = process.env.PLAYWRIGHT_BENCH_API_URL || "http://localhost:8787";
+
 const queuedRun = {
   id: "run-1",
   status: "queued",
@@ -59,7 +61,7 @@ test("notifies when a benchmark run completes", async ({ page }) => {
     Object.defineProperty(window, "EventSource", { configurable: true, value: FakeEventSource });
   });
 
-  await page.route("http://localhost:8787/api/humaneval/runs**", async (route, request) => {
+  await page.route("**/api/humaneval/runs**", async (route, request) => {
     const url = request.url();
     if (request.method() === "POST" && url.endsWith("/api/humaneval/runs")) {
       await route.fulfill({ json: queuedRun, status: 201 });
@@ -107,4 +109,67 @@ test("notifies when a benchmark run completes", async ({ page }) => {
       tag: "run-1"
     }
   }]);
+});
+
+test("highlights every detected loop cycle in the matching output channel", async ({ page }) => {
+  const repeatedCycle = "Wait, let's look at the points: (-10.12, 71.09) (-9.42, 66.06)";
+  const thinkingOutput = Array.from({ length: 6 }, () => repeatedCycle).join("\n");
+  const occurrences = Array.from({ length: 6 }, (_, index) => {
+    const start = index * (repeatedCycle.length + 1);
+    return { start, end: start + repeatedCycle.length };
+  });
+  const loopingRun = {
+    ...queuedRun,
+    id: "loop-run",
+    status: "completed",
+    total: 1,
+    completed: 1,
+    failed: 1,
+    results: [{
+      taskId: "HumanEval/7",
+      attemptId: "HumanEval/7::pass-1",
+      passNumber: 1,
+      passTotal: 1,
+      index: 7,
+      entryPoint: "looping_task",
+      passed: false,
+      looping: true,
+      repetitionPenalty: 1,
+      loopDetection: {
+        detectorVersion: "4",
+        channel: "thinking",
+        repetitions: 6,
+        patternWords: 31,
+        matchedWords: 186,
+        excerpt: "wait let s look at the points",
+        occurrences
+      },
+      tests: [],
+      prompt: "def looping_task(): pass",
+      test: "assert looping_task()",
+      rawOutput: "",
+      thinkingOutput,
+      extractedCode: ""
+    }]
+  };
+
+  await page.route("**/api/humaneval/runs**", async (route, request) => {
+    if (request.url().endsWith("/api/humaneval/runs")) {
+      await route.fulfill({ json: { runs: [loopingRun] } });
+      return;
+    }
+    await route.fulfill({ json: { ...loopingRun, events: [] } });
+  });
+
+  await page.goto("/run/loop-run");
+  await page.getByRole("button", { name: /HumanEval\/7/i }).click();
+  await page.getByText("Thinking", { exact: true }).click();
+
+  const highlights = page.locator(".loop-highlight");
+  await expect(highlights).toHaveCount(6);
+  await expect(highlights.first()).toBeVisible();
+  await expect(highlights.first()).toContainText("Wait, let's look at the points");
+  await expect(page.getByText("Loop 1 start", { exact: true })).toBeVisible();
+  await expect(page.getByText("Loop 6 end", { exact: true })).toBeVisible();
+  await expect(highlights.first()).toHaveCSS("background-color", "rgb(238, 221, 247)");
 });

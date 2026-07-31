@@ -138,6 +138,20 @@
   line-height: 1.45;
 }
 
+.checkbox-field {
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+}
+
+.checkbox-field input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  padding: 0;
+  accent-color: var(--blue);
+}
+
 .bench-number-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

@@ -32,7 +32,7 @@ export function MetricsPanel({
   selectedSpeedStats: { averageTask: string; elapsed: string };
   selectedRunNotificationsEnabled: boolean;
   setCommentSignalThreshold: (value: number) => void;
-  onCopyNumbers: (status: "pass" | "fail" | "error") => void;
+  onCopyNumbers: (status: "pass" | "fail" | "error" | "loop") => void;
   onCopyThinkingNumbers: (flagged: boolean) => void;
   onToggleNotifications: (run: BenchRun) => void;
 }) {
@@ -49,7 +49,7 @@ export function MetricsPanel({
       </Metric>
       <Metric
         label="Failed"
-        value={<MetricLines lines={[[checksLabel, String(failures.failedAssertions)], ["Errors", String(failures.errors)]]} />}
+        value={<MetricLines lines={[[checksLabel, String(failures.failedAssertions)], ["Errors", String(failures.errors)], ["Looping", String(failures.looping)]]} />}
         tone="failed"
       >
         <div className="metric-actions">
@@ -58,6 +58,9 @@ export function MetricsPanel({
           </button>
           <button className="metric-action" type="button" onClick={() => onCopyNumbers("error")} disabled={!failures.errors}>
             <ClipboardCopy size={14} /> Copy runtime errors
+          </button>
+          <button className="metric-action" type="button" onClick={() => onCopyNumbers("loop")} disabled={!failures.looping}>
+            <ClipboardCopy size={14} /> Copy looping
           </button>
         </div>
       </Metric>

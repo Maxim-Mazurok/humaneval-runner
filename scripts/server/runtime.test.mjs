@@ -78,6 +78,20 @@ function goodModelHandler(req, res, body) {
   sseFrames(res, ["```python\n", `${code}\n`, "```"], { entryPoint });
 }
 
+function loopingModelHandler(req, res) {
+  const repeatedCycle = [
+    "Reconsider every available choice and compare each stated condition before selecting the final answer",
+    "the first condition supports one option while the second condition rules that same option out",
+    "therefore the unresolved comparison begins again from the start"
+  ].join(". ");
+  res.writeHead(200, { "content-type": "text/event-stream" });
+  for (let repetitionIndex = 0; repetitionIndex < 5; repetitionIndex += 1) {
+    res.write(`data: ${JSON.stringify({ choices: [{ delta: { reasoning: `${repeatedCycle}. ` } }] })}\n\n`);
+  }
+  res.write("data: [DONE]\n\n");
+  res.end();
+}
+
 // Serves an OpenAI-compatible /chat/completions endpoint. `handlers` are
 // consumed one per request; the last handler repeats for later requests.
 async function startModelServer(handlers) {
@@ -132,6 +146,66 @@ async function waitForStatus(apiUrl, runId, statuses, timeout = 20_000) {
 }
 
 describe("runtime server", () => {
+  it("rejects a non-positive adaptive starting penalty", async () => {
+    const rootDir = await makeRootDir();
+    const { apiUrl } = await startRuntime(rootDir);
+
+    const response = await fetch(`${apiUrl}/api/humaneval/runs`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        baseUrl: "http://model.test/v1",
+        model: "test-model",
+        adaptiveRepetitionPenalty: true,
+        repetitionPenalty: 0
+      })
+    });
+
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toEqual({
+      error: "Starting repetition penalty must be greater than zero."
+    });
+  });
+
+  it("stops loops and adapts repetition penalties across tasks", async () => {
+    const rootDir = await makeRootDir();
+    const model = await startModelServer([loopingModelHandler, goodModelHandler]);
+    const { apiUrl } = await startRuntime(rootDir);
+
+    const created = await createRun(apiUrl, model.baseUrl, {
+      adaptiveRepetitionPenalty: true,
+      repetitionPenalty: 0.5,
+      parallelTasks: 8,
+      testNumbers: "0-1"
+    });
+    expect(created.config).toMatchObject({
+      adaptiveRepetitionPenalty: true,
+      repetitionPenalty: 0.5,
+      parallelTasks: 1,
+      loopDetectionConfig: { version: "4", repetitionCount: 5 }
+    });
+
+    const detail = await waitForStatus(apiUrl, created.id, ["completed"]);
+    expect(detail.results[0]).toMatchObject({
+      taskId: "HumanEval/0",
+      passed: false,
+      looping: true,
+      repetitionPenalty: 0.5,
+      finishReason: "loop",
+      loopDetection: { channel: "thinking", repetitions: 5 }
+    });
+    expect(detail.results[1]).toMatchObject({
+      taskId: "HumanEval/1",
+      passed: true,
+      repetitionPenalty: 0.55
+    });
+    expect(model.requests.map((request) => request.body.repetition_penalty)).toEqual([0.5, 0.55]);
+
+    const penaltyEvents = detail.events.filter((event) => event.type === "repetition-penalty-updated");
+    expect(penaltyEvents.map((event) => event.data.nextRepetitionPenalty)).toEqual([0.55, 0.52]);
+    expect(detail.events.some((event) => event.type === "loop-detected")).toBe(true);
+  });
+
   it("completes a full run: scores, events, artifacts, task logs, SSE replay", async () => {
     const rootDir = await makeRootDir();
     const model = await startModelServer([goodModelHandler]);
@@ -141,7 +215,11 @@ describe("runtime server", () => {
     expect(problemsResponse.total).toBe(3);
     expect(problemsResponse.problems[0]).toEqual({ taskId: "HumanEval/0", entryPoint: "add_one" });
 
-    const created = await createRun(apiUrl, model.baseUrl, { apiKey: "sk-secret", testNumbers: "0-1" });
+    const created = await createRun(apiUrl, model.baseUrl, {
+      apiKey: "sk-secret",
+      testNumbers: "0-1",
+      extraBody: { repetition_penalty: 0 }
+    });
     expect(["queued", "running"]).toContain(created.status);
     expect(created.total).toBe(2);
 
@@ -177,6 +255,7 @@ describe("runtime server", () => {
     expect(model.requests[0].url).toBe("/v1/chat/completions");
     expect(model.requests[0].headers.authorization).toBe("Bearer sk-secret");
     expect(model.requests[0].body).toMatchObject({ model: "test-model", stream: true });
+    expect(model.requests[0].body).not.toHaveProperty("repetition_penalty");
 
     // API key never appears in the summary or persisted artifacts.
     expect(JSON.stringify(detail)).not.toContain("sk-secret");
@@ -294,18 +373,24 @@ describe("runtime server", () => {
     const rootDir = await makeRootDir();
     let hangingResponses = [];
     const model = await startModelServer([
+      loopingModelHandler,
       (req, res) => {
-        // First request: stream one token, then hang until the client aborts.
+        // Second request: stream one token, then hang until the client aborts.
         res.writeHead(200, { "content-type": "text/event-stream" });
         res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: "partial" } }] })}\n\n`);
         hangingResponses.push(res);
         req.on("close", () => res.end());
       },
+      goodModelHandler,
       goodModelHandler
     ]);
     const { apiUrl } = await startRuntime(rootDir);
 
-    const created = await createRun(apiUrl, model.baseUrl, { testNumbers: "0-1" });
+    const created = await createRun(apiUrl, model.baseUrl, {
+      adaptiveRepetitionPenalty: true,
+      repetitionPenalty: 0.5,
+      testNumbers: "0-2"
+    });
     await vi.waitFor(() => {
       expect(hangingResponses.length).toBe(1);
     });
@@ -313,12 +398,19 @@ describe("runtime server", () => {
     const cancelled = await fetch(`${apiUrl}/api/humaneval/runs/${created.id}/cancel`, { method: "POST" }).then((response) => response.json());
     expect(cancelled.status === "cancelled" || cancelled.status === "running").toBe(true);
     const afterCancel = await waitForStatus(apiUrl, created.id, ["cancelled"]);
-    expect(afterCancel.completed).toBeLessThan(afterCancel.total);
+    expect(afterCancel).toMatchObject({ completed: 1, failed: 1 });
+    expect(afterCancel.results[0]).toMatchObject({ looping: true, repetitionPenalty: 0.5 });
 
     const resumed = await fetch(`${apiUrl}/api/humaneval/runs/${created.id}/resume`, { method: "POST" }).then((response) => response.json());
     expect(resumed.status).toBe("queued");
     const detail = await waitForStatus(apiUrl, created.id, ["completed"]);
-    expect(detail).toMatchObject({ completed: 2, passed: 2, failed: 0 });
+    expect(detail).toMatchObject({ completed: 3, passed: 2, failed: 1 });
+    expect(model.requests.map((request) => request.body.repetition_penalty)).toEqual([
+      0.5,
+      0.55,
+      0.55,
+      0.52
+    ]);
   }, 15_000);
 
   it("deletes a run and removes its artifacts from disk", async () => {

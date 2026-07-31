@@ -124,6 +124,8 @@ export const DEFAULT_FORM_VALUES = {
   timeoutSeconds: 15,
   parallelTasks: 1,
   passCount: 1,
+  adaptiveRepetitionPenalty: false,
+  repetitionPenalty: 1,
   commentSignalThreshold: 50,
   sampleLimit: 0,
   startIndex: 0,
@@ -163,6 +165,21 @@ export type BenchResult = {
   error?: string | null;
   traceback?: string | null;
   modelError?: string;
+  looping?: boolean;
+  loopDetection?: {
+    detectorVersion?: string;
+    channel: string;
+    repetitions: number;
+    patternWords: number;
+    matchedWords: number;
+    excerpt: string;
+    occurrences?: Array<{
+      start: number;
+      end: number;
+    }>;
+    detectionMode?: "token-limit";
+  };
+  repetitionPenalty?: number;
   generationMs?: number;
   activeDurationMilliseconds?: number;
   evaluationDurationMilliseconds?: number;
@@ -206,6 +223,8 @@ export type BenchRun = {
     timeoutSeconds?: number;
     parallelTasks?: number;
     passCount?: number;
+    adaptiveRepetitionPenalty?: boolean;
+    repetitionPenalty?: number;
     sampleLimit?: number;
     startIndex?: number;
     extraBody?: Record<string, unknown>;
@@ -234,6 +253,7 @@ export type EventEnvelope = {
 export type StartedTask = {
   taskId: string;
   attemptId?: string;
+  startedAt?: string;
   passNumber: number;
   passTotal: number;
   passOrdinal?: number;
@@ -242,11 +262,12 @@ export type StartedTask = {
   subtask?: string;
   prompt?: string;
   test?: string;
+  repetitionPenalty?: number;
 };
 
 export type TaskRow = StartedTask & {
   key: string;
-  status: "running" | "pass" | "fail" | "error";
+  status: "running" | "pass" | "fail" | "error" | "loop";
   result?: BenchResult;
 };
 

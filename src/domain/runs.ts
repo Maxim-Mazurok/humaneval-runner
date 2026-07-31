@@ -298,9 +298,10 @@ export function formatAssert(test: BenchResult["tests"][number]) {
   return lines.join("\n");
 }
 
-export type CompletedResultStatus = "pass" | "fail" | "error";
+export type CompletedResultStatus = "pass" | "fail" | "error" | "loop";
 
 export function resultStatus(result: BenchResult): CompletedResultStatus {
+  if (result.looping) return "loop";
   if (result.passed) return "pass";
   return result.tests.length > 0 ? "fail" : "error";
 }
@@ -311,9 +312,10 @@ export function failureStats(results: BenchResult[] = []) {
       const status = resultStatus(result);
       if (status === "fail") stats.failedAssertions += 1;
       if (status === "error") stats.errors += 1;
+      if (status === "loop") stats.looping += 1;
       return stats;
     },
-    { failedAssertions: 0, errors: 0 }
+    { failedAssertions: 0, errors: 0, looping: 0 }
   );
 }
 
@@ -330,6 +332,7 @@ export function resultNumbers(run: BenchRun | null, status: CompletedResultStatu
   return (run?.results ?? [])
     .filter((result) => resultStatus(result) === status)
     .map((result) => result.index)
+    .filter((index, position, indices) => indices.indexOf(index) === position)
     .sort((a, b) => a - b)
     .join(", ");
 }

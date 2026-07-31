@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const port = Number(process.env.HUMANEVAL_PORT || 8787);
+const frontendPort = Number(process.env.HUMANEVAL_FRONTEND_PORT || 5173);
 const endpointUrl = `http://127.0.0.1:${port}/api/humaneval/runs`;
 const retryDelayMilliseconds = 100;
 const viteCommand = fileURLToPath(new URL("../node_modules/vite/bin/vite.js", import.meta.url));
@@ -22,7 +23,14 @@ async function waitForBenchmarkServer() {
 
 await waitForBenchmarkServer();
 
-const viteProcess = spawn(process.execPath, [viteCommand, "--host", "0.0.0.0"], {
+const viteProcess = spawn(process.execPath, [
+  viteCommand,
+  "--host",
+  "0.0.0.0",
+  "--port",
+  String(frontendPort),
+  "--strictPort"
+], {
   stdio: "inherit"
 });
 

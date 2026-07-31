@@ -1,3 +1,5 @@
+<!-- cspell:words OMLX -->
+
 # HumanEval Runner
 
 A local web workbench for running LLM benchmarks against any OpenAI-compatible
@@ -27,12 +29,14 @@ Each run uses exactly one benchmark.
 - Configurable pass count for rerunning the selected benchmark set multiple
   times in pass-major order.
 - Configurable task parallelism, defaulting to one task at a time.
+- Optional streamed loop detection with adaptive per-task repetition penalties.
 - Live pass@1 score, completed/passed/failed counts, and assertion-level stats
   (answer checks for BBEH).
 - Per-task views for prompt, original task, model output, extracted code or
   final answer, captured reasoning/thinking stream, tests or expected answer,
   traceback, and assertion ledger.
 - Copy buttons for failed or passed task numbers so you can rerun focused sets.
+- First-class purple `LOOP` results and a copy action for looping task numbers.
 - Server-side runs continue if the browser reloads; the UI can reconnect to
   active or historical runs.
 - Incomplete stopped, cancelled, interrupted, or errored runs can be resumed
@@ -135,6 +139,25 @@ Set `Parallel` to the number of benchmark tasks to solve at once. The default is
 `1`, which preserves sequential execution. Higher values send multiple model
 requests concurrently and can make runs faster if your endpoint supports it.
 
+Enable `Detect loops and adapt repetition penalty` to run tasks sequentially
+and stop a generation after five immediately adjacent repetitions of the same
+body of at least 24 normalized words. Punctuation and whitespace may separate
+the bodies, but no additional normalized words may appear between them. Enabling
+it sets and disables `Parallel` at `1`. The first task uses the positive
+`Starting penalty`; there is no upper limit. A looping task is saved as `LOOP`,
+then the next task uses a penalty 10% higher. After a generation without a
+detected loop, the next penalty is 5% lower, but never at or below a penalty
+already observed looping. Penalties are calculated in hundredths. If rounding
+would repeat a tested value or land on the known looping boundary, the runner
+selects the nearest untried hundredth above that boundary. Saved task results
+include the penalty, detector version, thresholds, and exact character ranges
+for each cycle, so interrupted
+adaptive runs resume from reconstructed state and the UI can mark every loop's
+start and end in purple. Token-limit detection uses the same adjacency rule,
+with a minimum body length of eight normalized words when long thinking has no
+usable final output. Model errors and cancelled attempts do not change the
+adaptive state.
+
 Set `Passes` to rerun the same selected benchmark set multiple times. The runner
 executes the whole task set for pass 1, then the whole task set for pass 2, and
 so on. Results are grouped by task in the UI, with pass tabs inside each task
@@ -155,9 +178,29 @@ chat completion request. For example:
 
 ```json
 {
-  "top_p": 1
+  "top_p": 1,
+  "repetition_penalty": 1.05
 }
 ```
+
+OMLX accepts `repetition_penalty` per chat-completions request, so this field
+overrides its model or global setting without changing the OMLX UI. Any positive
+value is sent as provided; `0`, missing, non-numeric, and negative values are
+omitted so OMLX uses its configured default. Adaptive mode uses the dedicated
+positive `Starting penalty` field instead of this JSON property.
+
+Runs created before exact loop ranges were recorded can be previewed and then
+migrated without re-running benchmark tasks:
+
+```bash
+npm run migrate:loop-detection
+npm run migrate:loop-detection -- --apply
+```
+
+The migration reruns older loop classifications under the current detector,
+retains strict loops, and clears non-contiguous matches as retryable model
+errors. Applying it backs up each changed `results.json` beneath
+`benchmark-runs/.migration-backups/` and is safe to run again.
 
 ## Run Artifacts
 

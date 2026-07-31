@@ -65,6 +65,7 @@ export function taskGroupsFromRun(
       key,
       taskId,
       attemptId,
+      startedAt: event.at,
       passNumber,
       passTotal,
       passOrdinal: Number(event.data.passOrdinal) || undefined,
@@ -73,6 +74,9 @@ export function taskGroupsFromRun(
       subtask: typeof event.data.subtask === "string" ? event.data.subtask : undefined,
       prompt: typeof event.data.prompt === "string" ? event.data.prompt : undefined,
       test: typeof event.data.test === "string" ? event.data.test : undefined,
+      repetitionPenalty: Number.isFinite(Number(event.data.repetitionPenalty))
+        ? Number(event.data.repetitionPenalty)
+        : undefined,
       status: "running"
     });
   }

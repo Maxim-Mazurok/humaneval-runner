@@ -24,6 +24,7 @@
     "dev:frontend": "node scripts/start-frontend.mjs",
     "dev:bench": "node scripts/humaneval-server.mjs",
     "migrate:output-extraction": "node scripts/update-saved-results.mjs --apply",
+    "migrate:loop-detection": "node scripts/migrate-loop-detection.mjs",
     "reanalyze:output-extraction": "node scripts/reprocess-saved-results.mjs",
     "test": "vitest run",
     "test:unit": "vitest run src/notifications.test.ts",

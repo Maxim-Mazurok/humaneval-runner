@@ -20,6 +20,8 @@ export function useBenchForm() {
   const [timeoutSeconds, setTimeoutSeconds] = useState(DEFAULT_FORM_VALUES.timeoutSeconds);
   const [parallelTasks, setParallelTasks] = useState(DEFAULT_FORM_VALUES.parallelTasks);
   const [passCount, setPassCount] = useState(DEFAULT_FORM_VALUES.passCount);
+  const [adaptiveRepetitionPenalty, setAdaptiveRepetitionPenaltyState] = useState(DEFAULT_FORM_VALUES.adaptiveRepetitionPenalty);
+  const [repetitionPenalty, setRepetitionPenalty] = useState(DEFAULT_FORM_VALUES.repetitionPenalty);
   const [commentSignalThreshold, setCommentSignalThreshold] = useState(DEFAULT_FORM_VALUES.commentSignalThreshold);
   const [sampleLimit, setSampleLimit] = useState(DEFAULT_FORM_VALUES.sampleLimit);
   const [startIndex, setStartIndex] = useState(DEFAULT_FORM_VALUES.startIndex);
@@ -49,6 +51,8 @@ export function useBenchForm() {
     setTimeoutSeconds(DEFAULT_FORM_VALUES.timeoutSeconds);
     setParallelTasks(DEFAULT_FORM_VALUES.parallelTasks);
     setPassCount(DEFAULT_FORM_VALUES.passCount);
+    setAdaptiveRepetitionPenaltyState(DEFAULT_FORM_VALUES.adaptiveRepetitionPenalty);
+    setRepetitionPenalty(DEFAULT_FORM_VALUES.repetitionPenalty);
     setCommentSignalThreshold(DEFAULT_FORM_VALUES.commentSignalThreshold);
     setSampleLimit(DEFAULT_FORM_VALUES.sampleLimit);
     setStartIndex(DEFAULT_FORM_VALUES.startIndex);
@@ -68,6 +72,8 @@ export function useBenchForm() {
     setTimeoutSeconds(Number(config.timeoutSeconds ?? 15));
     setParallelTasks(normalizeParallelTasks(Number(config.parallelTasks ?? 1)));
     setPassCount(normalizePassCount(Number(config.passCount ?? 1)));
+    setAdaptiveRepetitionPenaltyState(Boolean(config.adaptiveRepetitionPenalty));
+    setRepetitionPenalty(Number(config.repetitionPenalty ?? config.extraBody?.repetition_penalty ?? 1));
     setSampleLimit(Number(config.sampleLimit ?? 0));
     setStartIndex(Number(config.startIndex ?? 0));
     setTestNumbers(String(config.testNumbers ?? ""));
@@ -78,9 +84,14 @@ export function useBenchForm() {
 
   return {
     benchmark, baseUrl, apiKey, model, maxTokens, timeoutSeconds, parallelTasks,
-    passCount, commentSignalThreshold, sampleLimit, startIndex, testNumbers,
+    passCount, adaptiveRepetitionPenalty, repetitionPenalty, commentSignalThreshold, sampleLimit, startIndex, testNumbers,
     systemPrompt, promptTemplate, extraBody, setBenchmark, setBaseUrl, setApiKey, setModel,
     setMaxTokens, setTimeoutSeconds, setParallelTasks, setPassCount,
+    setAdaptiveRepetitionPenalty(value: boolean) {
+      setAdaptiveRepetitionPenaltyState(value);
+      if (value) setParallelTasks(1);
+    },
+    setRepetitionPenalty,
     setCommentSignalThreshold, setSampleLimit, setStartIndex, setTestNumbers,
     setSystemPrompt, setPromptTemplate, setExtraBody, resetRunConfig, loadRunConfig
   };

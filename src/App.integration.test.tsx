@@ -270,6 +270,7 @@ describe("App notifications", () => {
     await userEvent.type(screen.getByLabelText("System prompt"), "system");
     await userEvent.clear(screen.getByLabelText("Prompt template"));
     await userEvent.type(screen.getByLabelText("Prompt template"), "prompt %problem_code%");
+    await userEvent.click(screen.getByLabelText("Detect loops and adapt repetition penalty"));
     fireEvent.change(screen.getByLabelText("Extra request body"), { target: { value: "{\"top_p\":0.25}" } });
 
     await userEvent.click(screen.getByRole("button", { name: /start run/i }));
@@ -278,13 +279,154 @@ describe("App notifications", () => {
     expect(postCall).toBeTruthy();
     expect(JSON.parse(String(postCall?.[1]?.body))).toMatchObject({
       model: "configured-model",
-      parallelTasks: 64,
+      parallelTasks: 1,
       passCount: 100,
+      adaptiveRepetitionPenalty: true,
       systemPrompt: "system",
       promptTemplate: "prompt %problem_code%",
       temperature: 0,
       extraBody: { top_p: 0.25 }
     });
+  });
+
+  it("shows and copies looping tasks separately", async () => {
+    window.history.replaceState(null, "", "/run/run-1");
+    const repeatedCycle = "Wait, let's look at the points: (-10.12, 71.09) (-9.42, 66.06)";
+    const thinkingOutput = Array.from({ length: 6 }, () => repeatedCycle).join("\n");
+    const occurrences = Array.from({ length: 6 }, (_, index) => {
+      const start = index * (repeatedCycle.length + 1);
+      return { start, end: start + repeatedCycle.length };
+    });
+    const clipboardWrite = vi.fn(async () => undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: clipboardWrite }
+    });
+    const loopingRun = baseRun({
+      status: "completed",
+      total: 1,
+      completed: 1,
+      failed: 1,
+      config: { adaptiveRepetitionPenalty: true },
+      results: [{
+        taskId: "HumanEval/7",
+        attemptId: "HumanEval/7::pass-1",
+        passNumber: 1,
+        passTotal: 1,
+        index: 7,
+        entryPoint: "looping_task",
+        passed: false,
+        looping: true,
+        repetitionPenalty: 1,
+        loopDetection: {
+          channel: "thinking",
+          repetitions: 6,
+          patternWords: 42,
+          matchedWords: 252,
+          excerpt: "repeated reasoning",
+          occurrences
+        },
+        tests: [],
+        prompt: "def looping_task(): pass",
+        test: "assert looping_task()",
+        rawOutput: "",
+        thinkingOutput,
+        extractedCode: ""
+      }]
+    });
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/api/humaneval/runs")) return jsonResponse({ runs: [loopingRun] });
+      return jsonResponse({ ...loopingRun, events: [] });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { container } = render(<App />);
+
+    expect(await screen.findByText("loop")).toHaveClass("loop-pill");
+    expect(screen.getByText("Looping")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: /HumanEval\/7/i }));
+    expect(container.querySelectorAll(".loop-highlight")).toHaveLength(6);
+    expect(screen.getByText("Loop 1 start")).toBeInTheDocument();
+    expect(screen.getByText("Loop 6 end")).toBeInTheDocument();
+    expect(container.querySelector(".loop-highlight")?.textContent).toContain("Wait, let's look at the points");
+    await userEvent.click(screen.getByRole("button", { name: "Copy looping" }));
+    expect(clipboardWrite).toHaveBeenCalledWith("7");
+  });
+
+  it("shows penalties for every completed adaptive task status", async () => {
+    window.history.replaceState(null, "", "/run/run-1");
+    const resultBase = {
+      passNumber: 1,
+      passTotal: 1,
+      entryPoint: "task",
+      prompt: "def task(): pass",
+      test: "assert task()",
+      rawOutput: "",
+      extractedCode: "",
+      activeDurationMilliseconds: 1_000
+    };
+    const adaptiveRun = baseRun({
+      status: "completed",
+      total: 4,
+      completed: 4,
+      passed: 1,
+      failed: 3,
+      config: { adaptiveRepetitionPenalty: true },
+      results: [
+        { ...resultBase, taskId: "HumanEval/0", index: 0, passed: true, repetitionPenalty: 1.01, tests: [] },
+        { ...resultBase, taskId: "HumanEval/1", index: 1, passed: false, repetitionPenalty: 1.02, tests: [{ source: "assert task()", passed: false }] },
+        { ...resultBase, taskId: "HumanEval/2", index: 2, passed: false, repetitionPenalty: 1.03, tests: [], modelError: "Request failed" },
+        { ...resultBase, taskId: "HumanEval/3", index: 3, passed: false, repetitionPenalty: 1.04, tests: [], looping: true }
+      ]
+    });
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/api/humaneval/runs")) return jsonResponse({ runs: [adaptiveRun] });
+      return jsonResponse({ ...adaptiveRun, events: [] });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+
+    expect(await screen.findByRole("button", { name: /HumanEval\/0/i })).toHaveTextContent("penalty 1.01");
+    expect(screen.getByRole("button", { name: /HumanEval\/1/i })).toHaveTextContent("penalty 1.02");
+    expect(screen.getByRole("button", { name: /HumanEval\/2/i })).toHaveTextContent("penalty 1.03");
+    expect(screen.getByRole("button", { name: /HumanEval\/3/i })).toHaveTextContent("penalty 1.04");
+  });
+
+  it("hides result penalties for non-adaptive runs", async () => {
+    window.history.replaceState(null, "", "/run/run-1");
+    const nonAdaptiveRun = baseRun({
+      status: "completed",
+      total: 1,
+      completed: 1,
+      failed: 1,
+      config: { adaptiveRepetitionPenalty: false },
+      results: [{
+        taskId: "HumanEval/2",
+        index: 2,
+        entryPoint: "task",
+        passed: false,
+        repetitionPenalty: 1.03,
+        tests: [],
+        modelError: "Request failed",
+        prompt: "def task(): pass",
+        test: "assert task()",
+        rawOutput: "",
+        extractedCode: ""
+      }]
+    });
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/api/humaneval/runs")) return jsonResponse({ runs: [nonAdaptiveRun] });
+      return jsonResponse({ ...nonAdaptiveRun, events: [] });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+
+    expect(await screen.findByRole("button", { name: /HumanEval\/2/i })).not.toHaveTextContent("penalty");
   });
 
   it("does not post a run when extra request body is invalid", async () => {
@@ -428,6 +570,41 @@ describe("App notifications", () => {
 
     await waitFor(() => expect(screen.getByText("Remaining")).toBeInTheDocument());
     expect(screen.getByRole("button", { name: /disable finish notification/i })).toBeInTheDocument();
+  });
+
+  it("shows elapsed time and repetition penalty for a running task", async () => {
+    window.history.replaceState(null, "", "/run/run-1");
+    const runningRun = baseRun({
+      status: "running",
+      currentTaskId: "bbeh_mini/1",
+      activeTaskIds: ["bbeh_mini/1"],
+      benchmark: "bbeh-mini",
+      config: { adaptiveRepetitionPenalty: true }
+    } as Partial<RunFixture>);
+    const events = [{
+      type: "task-started",
+      at: new Date(Date.now() - 4 * 60 * 1_000).toISOString(),
+      data: {
+        taskId: "bbeh_mini/1",
+        attemptId: "bbeh_mini/1::pass-1",
+        passNumber: 1,
+        passTotal: 1,
+        index: 1,
+        subtask: "mini",
+        repetitionPenalty: 1.1
+      }
+    }];
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/api/humaneval/runs")) return jsonResponse({ runs: [runningRun] });
+      return jsonResponse({ ...runningRun, events });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+
+    const taskRow = await screen.findByRole("button", { name: /bbeh_mini\/1/i });
+    expect(taskRow).toHaveTextContent(/4m [01]s · penalty 1\.1 · in progress/);
   });
 
   it("keeps full live output and running task prompts after many tokens", async () => {

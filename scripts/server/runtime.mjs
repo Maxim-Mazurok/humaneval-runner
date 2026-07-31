@@ -23,9 +23,18 @@ import {
 } from "./domain.mjs";
 import { benchmarkSummaries, getBenchmark } from "./benchmarks/registry.mjs";
 import { fetchModelResponseWithRetry, throwIfRetryableModelOutput } from "./modelRetry.mjs";
+import {
+  detectRepetitionLoop,
+  detectTokenLimitRepetitionLoop,
+  initialRepetitionPenalty,
+  LOOP_DETECTION_CONFIG,
+  nextAdaptiveRepetitionPenalty,
+  restoreAdaptiveRepetitionPenaltyState
+} from "./repetitionDetector.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const defaultRootDir = join(__dirname, "../..");
+const LOOP_DETECTION_CHECK_INTERVAL_CHARACTERS = 512;
 
 function byteLength(text) {
   return Buffer.byteLength(text, "utf8");
@@ -234,6 +243,32 @@ export function createRuntimeServer({
     let raw = "";
     let usage = null;
     let finishReason = null;
+    const lastLoopCheckCharacters = { thinking: 0, output: 0 };
+
+    function responseResult(loopDetection = null) {
+      return {
+        output,
+        thinking,
+        transcript,
+        raw,
+        usage,
+        finishReason: loopDetection ? "loop" : finishReason,
+        loopDetection,
+        elapsedMs: Date.now() - started
+      };
+    }
+
+    function detectStreamLoop(force = false) {
+      if (!run.adaptiveRepetitionPenalty) return null;
+      for (const [channel, text] of [["thinking", thinking], ["output", output]]) {
+        if (!force && text.length - lastLoopCheckCharacters[channel] < LOOP_DETECTION_CHECK_INTERVAL_CHARACTERS) continue;
+        lastLoopCheckCharacters[channel] = text.length;
+        const detection = detectRepetitionLoop(text);
+        if (detection) return { channel, ...detection };
+      }
+      return null;
+    }
+
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
@@ -267,11 +302,36 @@ export function createRuntimeServer({
           if (!parts.length && Object.keys(delta).length) {
             appendEvent(run, "raw-delta", { taskId: problem.task_id, index, ...context, delta });
           }
+          const loopDetection = detectStreamLoop();
+          if (loopDetection) {
+            appendEvent(run, "loop-detected", {
+              taskId: problem.task_id,
+              index,
+              ...context,
+              ...loopDetection
+            });
+            await reader.cancel().catch(() => undefined);
+            return responseResult(loopDetection);
+          }
         }
       }
     }
+    const loopDetection = detectStreamLoop(true) || detectTokenLimitRepetitionLoop({
+      thinking,
+      output,
+      finishReason
+    });
+    if (loopDetection) {
+      appendEvent(run, "loop-detected", {
+        taskId: problem.task_id,
+        index,
+        ...context,
+        ...loopDetection
+      });
+      return responseResult(loopDetection);
+    }
     throwIfRetryableModelOutput(thinking, output);
-    return { output, thinking, transcript, raw, usage, finishReason, elapsedMs: Date.now() - started };
+    return responseResult();
   }
 
   async function callModel(run, problem, index, context = {}) {
@@ -289,6 +349,10 @@ export function createRuntimeServer({
       stream_options: { include_usage: true }
     };
     if (run.extraBody && Object.keys(run.extraBody).length) Object.assign(body, run.extraBody);
+    if (!Number.isFinite(Number(body.repetition_penalty)) || Number(body.repetition_penalty) <= 0) {
+      delete body.repetition_penalty;
+    }
+    if (Number.isFinite(context.repetitionPenalty)) body.repetition_penalty = context.repetitionPenalty;
 
     appendEvent(run, "prompt", { taskId: problem.task_id, index, ...context, messages, request: { ...body, messages } });
     const started = Date.now();
@@ -369,7 +433,8 @@ export function createRuntimeServer({
           attemptId,
           passNumber,
           passTotal,
-          passOrdinal
+          passOrdinal,
+          ...(run.adaptiveRepetitionPenalty ? { repetitionPenalty: run.currentRepetitionPenalty } : {})
         };
         appendEvent(run, "task-started", {
           taskId: problem.task_id,
@@ -405,7 +470,65 @@ export function createRuntimeServer({
               prompt: problem.prompt,
               test: benchmark.problemReference(problem),
               rawOutput: "",
+              thinkingOutput: "",
+              rawTranscript: "",
+              rawSse: "",
               extractedCode: "",
+              usage: null,
+              finishReason: null,
+              ...(run.adaptiveRepetitionPenalty ? { repetitionPenalty: context.repetitionPenalty } : {}),
+              generationMs: Date.now() - taskStartedAtMilliseconds,
+              activeDurationMilliseconds: Date.now() - taskStartedAtMilliseconds
+            };
+            await finishTask(result);
+            return;
+          }
+          if (run.adaptiveRepetitionPenalty) {
+            const testedRepetitionPenalties = run.results
+              .filter((result) => Number.isFinite(result.repetitionPenalty) && !result.modelError)
+              .map((result) => result.repetitionPenalty);
+            const nextPenaltyState = nextAdaptiveRepetitionPenalty({
+              repetitionPenalty: context.repetitionPenalty,
+              knownLoopingPenalty: run.knownLoopingPenalty,
+              testedRepetitionPenalties,
+              looping: Boolean(generation.loopDetection)
+            });
+            run.currentRepetitionPenalty = nextPenaltyState.repetitionPenalty;
+            run.knownLoopingPenalty = nextPenaltyState.knownLoopingPenalty;
+            appendEvent(run, "repetition-penalty-updated", {
+              taskId: problem.task_id,
+              index,
+              ...context,
+              looping: Boolean(generation.loopDetection),
+              nextRepetitionPenalty: run.currentRepetitionPenalty,
+              knownLoopingPenalty: run.knownLoopingPenalty
+            });
+          }
+          if (generation.loopDetection) {
+            const result = {
+              taskId: problem.task_id,
+              attemptId,
+              passNumber,
+              passTotal,
+              index,
+              entryPoint: problem.entry_point,
+              subtask: problem.subtask,
+              passed: false,
+              looping: true,
+              loopDetection: generation.loopDetection,
+              repetitionPenalty: context.repetitionPenalty,
+              tests: [],
+              instructionPrompt: buildPromptMessages(problem, run.systemPrompt, run.promptTemplate).map((message) => `${message.role.toUpperCase()}:\n${message.content}`).join("\n\n"),
+              prompt: problem.prompt,
+              test: benchmark.problemReference(problem),
+              rawOutput: generation.output,
+              thinkingOutput: generation.thinking,
+              rawTranscript: generation.transcript,
+              rawSse: generation.raw,
+              extractedCode: "",
+              usage: generation.usage,
+              finishReason: generation.finishReason,
+              generationMs: generation.elapsedMs,
               activeDurationMilliseconds: Date.now() - taskStartedAtMilliseconds
             };
             await finishTask(result);
@@ -449,6 +572,7 @@ export function createRuntimeServer({
             extractedCode,
             usage: generation.usage,
             finishReason: generation.finishReason,
+            ...(run.adaptiveRepetitionPenalty ? { repetitionPenalty: context.repetitionPenalty } : {}),
             generationMs: generation.elapsedMs,
             evaluationDurationMilliseconds,
             activeDurationMilliseconds: Date.now() - taskStartedAtMilliseconds
@@ -517,7 +641,12 @@ export function createRuntimeServer({
     const benchmark = getBenchmark(config.benchmark);
     const allProblems = await loadBenchmarkProblems(benchmark);
     const selectedIndices = parseTestNumbers(config.testNumbers, allProblems.length, benchmark.taskIdPattern);
-    const parallelTasks = normalizeParallelTasks(config.parallelTasks);
+    const adaptiveRepetitionPenalty = Boolean(config.adaptiveRepetitionPenalty);
+    const repetitionPenalty = Number(config.repetitionPenalty ?? 1);
+    if (adaptiveRepetitionPenalty && (!Number.isFinite(repetitionPenalty) || repetitionPenalty <= 0)) {
+      throw new Error("Starting repetition penalty must be greater than zero.");
+    }
+    const parallelTasks = adaptiveRepetitionPenalty ? 1 : normalizeParallelTasks(config.parallelTasks);
     const passCount = normalizePassCount(config.passCount);
     const startIndex = normalizeTaskCount(config.startIndex);
     const sampleLimit = normalizeTaskCount(config.sampleLimit);
@@ -550,6 +679,10 @@ export function createRuntimeServer({
       systemPrompt: String(config.systemPrompt ?? benchmark.defaultSystemPrompt),
       promptTemplate: String(config.promptTemplate ?? benchmark.defaultPromptTemplate),
       extraBody: config.extraBody && typeof config.extraBody === "object" ? config.extraBody : {},
+      adaptiveRepetitionPenalty,
+      repetitionPenalty,
+      currentRepetitionPenalty: initialRepetitionPenalty(repetitionPenalty, config.extraBody),
+      knownLoopingPenalty: null,
       publicConfig: {
         baseUrl,
         benchmark: benchmark.id,
@@ -565,7 +698,10 @@ export function createRuntimeServer({
         testNumbers: String(config.testNumbers || ""),
         systemPrompt: String(config.systemPrompt ?? benchmark.defaultSystemPrompt),
         promptTemplate: String(config.promptTemplate ?? benchmark.defaultPromptTemplate),
-        extraBody: config.extraBody && typeof config.extraBody === "object" ? config.extraBody : {}
+        extraBody: config.extraBody && typeof config.extraBody === "object" ? config.extraBody : {},
+        adaptiveRepetitionPenalty,
+        repetitionPenalty,
+        loopDetectionConfig: LOOP_DETECTION_CONFIG
       },
       total: plannedTaskCount * passCount,
       completed: 0,
@@ -647,6 +783,15 @@ export function createRuntimeServer({
           abortController: null,
           abortControllers: new Set()
         };
+        if (run.adaptiveRepetitionPenalty) {
+          const penaltyState = restoreAdaptiveRepetitionPenaltyState(
+            run.results,
+            run.repetitionPenalty,
+            run.extraBody
+          );
+          run.currentRepetitionPenalty = penaltyState.repetitionPenalty;
+          run.knownLoopingPenalty = penaltyState.knownLoopingPenalty;
+        }
         syncRunCountsFromResults(run);
         if (run.status === "running" || run.status === "queued") {
           run.status = "interrupted";

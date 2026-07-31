@@ -26,6 +26,8 @@ export type SidebarConfigProps = {
   timeoutSeconds: number;
   parallelTasks: number;
   passCount: number;
+  adaptiveRepetitionPenalty: boolean;
+  repetitionPenalty: number;
   sampleLimit: number;
   startIndex: number;
   testNumbers: string;
@@ -46,6 +48,8 @@ export type SidebarConfigProps = {
   setTimeoutSeconds: (value: number) => void;
   setParallelTasks: (value: number) => void;
   setPassCount: (value: number) => void;
+  setAdaptiveRepetitionPenalty: (value: boolean) => void;
+  setRepetitionPenalty: (value: number) => void;
   setSampleLimit: (value: number) => void;
   setStartIndex: (value: number) => void;
   setTestNumbers: (value: string) => void;
@@ -76,6 +80,14 @@ export function SidebarConfig(props: SidebarConfigProps) {
           <PanelLeftClose size={18} />
         </button>
       </div>
+      <label className="field checkbox-field">
+        <input
+          checked={props.adaptiveRepetitionPenalty}
+          type="checkbox"
+          onChange={(event) => props.setAdaptiveRepetitionPenalty(event.target.checked)}
+        />
+        <span>Detect loops and adapt repetition penalty</span>
+      </label>
       <label className="field">
         <span><FileText size={14} /> Benchmark</span>
         <select
@@ -110,11 +122,15 @@ export function SidebarConfig(props: SidebarConfigProps) {
         </label>
         <label className="field">
           <span>Parallel</span>
-          <input value={props.parallelTasks} min={1} max={64} type="number" onChange={(event) => props.setParallelTasks(normalizeParallelTasks(Number(event.target.value)))} />
+          <input disabled={props.adaptiveRepetitionPenalty} value={props.parallelTasks} min={1} max={64} type="number" onChange={(event) => props.setParallelTasks(normalizeParallelTasks(Number(event.target.value)))} />
         </label>
         <label className="field">
           <span>Passes</span>
           <input value={props.passCount} min={1} max={100} type="number" onChange={(event) => props.setPassCount(normalizePassCount(Number(event.target.value)))} />
+        </label>
+        <label className="field">
+          <span>Starting penalty</span>
+          <input disabled={!props.adaptiveRepetitionPenalty} value={props.repetitionPenalty} min={Number.MIN_VALUE} step="any" type="number" onChange={(event) => props.setRepetitionPenalty(Number(event.target.value))} />
         </label>
         <label className="field">
           <span>Start</span>

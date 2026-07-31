@@ -58,9 +58,9 @@ export function useBenchmarkController() {
   const form = useBenchForm();
   const {
     benchmark, baseUrl, apiKey, model, maxTokens, timeoutSeconds, parallelTasks,
-    passCount, commentSignalThreshold, sampleLimit, startIndex, testNumbers,
+    passCount, adaptiveRepetitionPenalty, repetitionPenalty, commentSignalThreshold, sampleLimit, startIndex, testNumbers,
     systemPrompt, promptTemplate, extraBody, setBenchmark, setBaseUrl, setApiKey, setModel,
-    setMaxTokens, setTimeoutSeconds, setParallelTasks, setPassCount,
+    setMaxTokens, setTimeoutSeconds, setParallelTasks, setPassCount, setAdaptiveRepetitionPenalty, setRepetitionPenalty,
     setCommentSignalThreshold, setSampleLimit, setStartIndex, setTestNumbers,
     setSystemPrompt, setPromptTemplate, setExtraBody, resetRunConfig, loadRunConfig
   } = form;
@@ -320,6 +320,7 @@ export function useBenchmarkController() {
           timeoutSeconds,
           parallelTasks: normalizeParallelTasks(parallelTasks),
           passCount: normalizePassCount(passCount),
+          adaptiveRepetitionPenalty,
           sampleLimit,
           startIndex,
           testNumbers,
@@ -400,7 +401,7 @@ export function useBenchmarkController() {
     }
   }
 
-  async function copyNumbers(status: "pass" | "fail" | "error") {
+  async function copyNumbers(status: "pass" | "fail" | "error" | "loop") {
     const text = resultNumbers(selectedRun, status);
     await navigator.clipboard.writeText(text);
   }
@@ -419,6 +420,8 @@ export function useBenchmarkController() {
     timeoutSeconds,
     parallelTasks,
     passCount,
+    adaptiveRepetitionPenalty,
+    repetitionPenalty,
     sampleLimit,
     startIndex,
     testNumbers,
@@ -443,6 +446,7 @@ export function useBenchmarkController() {
     sidebarCollapsed,
     selectedPassByTask,
     commentSignalThreshold,
+    currentTimeMilliseconds: nowMs,
     setBenchmark,
     setBaseUrl,
     setApiKey,
@@ -451,6 +455,8 @@ export function useBenchmarkController() {
     setTimeoutSeconds,
     setParallelTasks,
     setPassCount,
+    setAdaptiveRepetitionPenalty,
+    setRepetitionPenalty,
     setSampleLimit,
     setStartIndex,
     setTestNumbers,

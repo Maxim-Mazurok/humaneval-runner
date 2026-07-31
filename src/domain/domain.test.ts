@@ -98,13 +98,24 @@ describe("run domain helpers", () => {
   it("separates assertion failures from attempts that never ran an assertion", () => {
     const assertionFailure = result({ index: 4, passed: false, tests: [{ source: "assert a", passed: false }] });
     const harnessError = result({ index: 9, passed: false, tests: [], traceback: "SyntaxError" });
-    const sample = run({ results: [assertionFailure, harnessError] });
+    const looping = result({ index: 12, passed: false, tests: [], looping: true });
+    const sample = run({ results: [assertionFailure, harnessError, looping] });
 
     expect(resultStatus(assertionFailure)).toBe("fail");
     expect(resultStatus(harnessError)).toBe("error");
-    expect(failureStats(sample.results)).toEqual({ failedAssertions: 1, errors: 1 });
+    expect(resultStatus(looping)).toBe("loop");
+    expect(failureStats(sample.results)).toEqual({ failedAssertions: 1, errors: 1, looping: 1 });
     expect(resultNumbers(sample, "fail")).toBe("4");
     expect(resultNumbers(sample, "error")).toBe("9");
+    expect(resultNumbers(sample, "loop")).toBe("12");
+
+    const repeatedPasses = run({
+      results: [
+        result({ index: 12, passed: false, looping: true }),
+        result({ index: 12, passed: false, looping: true, passNumber: 2 })
+      ]
+    });
+    expect(resultNumbers(repeatedPasses, "loop")).toBe("12");
   });
 
   it("formats completed pass, speed, and remaining metrics", () => {
