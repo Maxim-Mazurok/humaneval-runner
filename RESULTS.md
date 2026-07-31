@@ -51,4 +51,4 @@ Conclusions:
 
 - [WIP 52/460 4.6%-93.3%] - 40.4% - 16384 thinking, 18432 tokens, 1 pass, Qwen3.6-27B-MXFP4, 18h32m, `BBEH Mini (corrected) · data 80d12ca+linguini-single-blank-v1`
 - [WIP 55/460 2.2%-90.2%] - 18.2% - 8192? thinking, 16384 tokens, 1 pass, gpt-oss-20b-MXFP4-Q8, 2h15m, `BBEH Mini (official data)`
-- [WIP 29/460 0%-93.7%] - 0% - 16384 thinking, 18432 tokens, 1 pass, gemma-4-12B-it-8bit, 8h14m, `BBEH Mini (corrected) · data 80d12ca+linguini-single-blank-v1` - looping all the time, both with default and 1.08 repetition penalty
+- [WIP 29/460 0%-93.7%] - 0% - 16384 thinking, 18432 tokens, 1 pass, gemma-4-12B-it-8bit + VLM MTP gemma-4-12B-it-qat-assistant-bf16 block-size 3, 8h14m, `BBEH Mini (corrected) · data 80d12ca+linguini-single-blank-v1` - looping all the time, both with default and 1.08 repetition penalty
