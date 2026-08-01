@@ -146,16 +146,16 @@ export function syncRunCountsFromResults(run) {
   run.failed = failed;
 }
 
-const resumeDiscardEventTypes = new Set(["token", "raw", "raw-delta", "code-extracted"]);
+const resumeDiscardEventTypes = new Set(["error", "token", "raw", "raw-delta", "code-extracted"]);
 
 export function discardResumeArtifacts(run) {
   const retainedResults = run.results.filter((result) => !result.modelError);
   const retainedAttemptIds = new Set(retainedResults.map(resultAttemptId).filter(Boolean));
   run.results = retainedResults;
   run.events = run.events.filter((event) => {
+    if (resumeDiscardEventTypes.has(event.type)) return false;
     const attemptId = eventAttemptId(event);
     if (!attemptId) return true;
-    if (resumeDiscardEventTypes.has(event.type)) return false;
     return retainedAttemptIds.has(attemptId);
   });
   syncRunCountsFromResults(run);

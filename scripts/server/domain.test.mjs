@@ -229,6 +229,7 @@ describe("server domain helpers", () => {
       ],
       events: [
         { type: "run-started", data: {} },
+        { type: "error", data: { message: "Run cancelled.", summary: { status: "cancelled" } } },
         { type: "task-started", data: { taskId: "HumanEval/0", attemptId: "HumanEval/0::pass-1" } },
         { type: "token", data: { taskId: "HumanEval/0", attemptId: "HumanEval/0::pass-1" } },
         { type: "task-finished", data: { taskId: "HumanEval/0", attemptId: "HumanEval/0::pass-1" } },
@@ -242,6 +243,7 @@ describe("server domain helpers", () => {
     expect(run.results.map((result) => result.attemptId)).toEqual(["HumanEval/0::pass-1", "HumanEval/99::pass-1"]);
     expect(run).toMatchObject({ completed: 2, passed: 1, failed: 1 });
     expect(run.events.map((event) => event.type)).toEqual(["run-started", "task-started", "task-finished", "task-started"]);
+    expect(run.events.some((event) => event.type === "error")).toBe(false);
     expect(run.events.some((event) => event.data.attemptId === "HumanEval/1::pass-1")).toBe(false);
   });
 

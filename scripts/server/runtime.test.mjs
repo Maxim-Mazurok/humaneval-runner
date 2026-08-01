@@ -453,6 +453,7 @@ describe("runtime server", () => {
       0.55,
       0.52
     ]);
+    expect(detail.events.some((event) => event.type === "error")).toBe(false);
   }, 15_000);
 
   it("deletes a run and removes its artifacts from disk", async () => {
