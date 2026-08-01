@@ -243,16 +243,17 @@ export function createRuntimeServer({
     let raw = "";
     let usage = null;
     let finishReason = null;
+    let loopDetection = null;
     const lastLoopCheckCharacters = { thinking: 0, output: 0 };
 
-    function responseResult(loopDetection = null) {
+    function responseResult() {
       return {
         output,
         thinking,
         transcript,
         raw,
         usage,
-        finishReason: loopDetection ? "loop" : finishReason,
+        finishReason: loopDetection && run.adaptiveRepetitionPenalty ? "loop" : finishReason,
         loopDetection,
         elapsedMs: Date.now() - started
       };
@@ -266,6 +267,17 @@ export function createRuntimeServer({
         if (detection) return { channel, ...detection };
       }
       return null;
+    }
+
+    function recordLoopDetection(detection) {
+      if (!detection || loopDetection) return;
+      loopDetection = detection;
+      appendEvent(run, "loop-detected", {
+        taskId: problem.task_id,
+        index,
+        ...context,
+        ...loopDetection
+      });
     }
 
     while (true) {
@@ -301,34 +313,21 @@ export function createRuntimeServer({
           if (!parts.length && Object.keys(delta).length) {
             appendEvent(run, "raw-delta", { taskId: problem.task_id, index, ...context, delta });
           }
-          const loopDetection = detectStreamLoop();
-          if (loopDetection) {
-            appendEvent(run, "loop-detected", {
-              taskId: problem.task_id,
-              index,
-              ...context,
-              ...loopDetection
-            });
+          const detectedLoop = detectStreamLoop();
+          recordLoopDetection(detectedLoop);
+          if (detectedLoop && run.adaptiveRepetitionPenalty) {
             await reader.cancel().catch(() => undefined);
-            return responseResult(loopDetection);
+            return responseResult();
           }
         }
       }
     }
-    const loopDetection = detectStreamLoop(true) || detectTokenLimitRepetitionLoop({
+    recordLoopDetection(detectStreamLoop(true) || detectTokenLimitRepetitionLoop({
       thinking,
       output,
       finishReason
-    });
-    if (loopDetection) {
-      appendEvent(run, "loop-detected", {
-        taskId: problem.task_id,
-        index,
-        ...context,
-        ...loopDetection
-      });
-      return responseResult(loopDetection);
-    }
+    }));
+    if (loopDetection && run.adaptiveRepetitionPenalty) return responseResult();
     throwIfRetryableModelOutput(thinking, output);
     return responseResult();
   }
@@ -509,7 +508,7 @@ export function createRuntimeServer({
               knownLoopingPenalty: run.knownLoopingPenalty
             });
           }
-          if (generation.loopDetection) {
+          if (run.adaptiveRepetitionPenalty && generation.loopDetection) {
             const result = {
               taskId: problem.task_id,
               attemptId,
@@ -575,6 +574,7 @@ export function createRuntimeServer({
             rawTranscript: generation.transcript,
             rawSse: generation.raw,
             extractedCode,
+            ...(generation.loopDetection ? { loopDetection: generation.loopDetection } : {}),
             usage: generation.usage,
             finishReason: generation.finishReason,
             ...(run.adaptiveRepetitionPenalty ? { repetitionPenalty: context.repetitionPenalty } : {}),

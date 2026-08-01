@@ -271,7 +271,7 @@ describe("App notifications", () => {
     await userEvent.type(screen.getByLabelText("System prompt"), "system");
     await userEvent.clear(screen.getByLabelText("Prompt template"));
     await userEvent.type(screen.getByLabelText("Prompt template"), "prompt %problem_code%");
-    await userEvent.click(screen.getByLabelText("Detect loops and adapt repetition penalty"));
+    await userEvent.click(screen.getByLabelText("Abort loops and adapt repetition penalty"));
     fireEvent.change(screen.getByLabelText("Extra request body"), { target: { value: "{\"top_p\":0.25}" } });
 
     await userEvent.click(screen.getByRole("button", { name: /start run/i }));
@@ -358,8 +358,53 @@ describe("App notifications", () => {
     expect(screen.getByText("Loop 1 start")).toBeInTheDocument();
     expect(screen.getByText("Loop 6 end")).toBeInTheDocument();
     expect(container.querySelector(".loop-highlight")?.textContent).toContain("Wait, let's look at the points");
+    expect(screen.getByText(/Generation stopped early\./)).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Copy looping" }));
     expect(clipboardWrite).toHaveBeenCalledWith("7");
+  });
+
+  it("shows when a detected loop was allowed to finish", async () => {
+    window.history.replaceState(null, "", "/run/run-1");
+    const recoveredRun = baseRun({
+      status: "completed",
+      total: 1,
+      completed: 1,
+      passed: 1,
+      config: { adaptiveRepetitionPenalty: false },
+      results: [{
+        taskId: "HumanEval/7",
+        attemptId: "HumanEval/7::pass-1",
+        passNumber: 1,
+        passTotal: 1,
+        index: 7,
+        entryPoint: "recovered_task",
+        passed: true,
+        loopDetection: {
+          channel: "thinking",
+          repetitions: 5,
+          patternWords: 45,
+          matchedWords: 225,
+          excerpt: "repeated reasoning"
+        },
+        tests: [{ source: "assert recovered_task()", passed: true }],
+        prompt: "def recovered_task(): return True",
+        test: "assert recovered_task()",
+        rawOutput: "```python\ndef recovered_task(): return True\n```",
+        thinkingOutput: "repeated reasoning",
+        extractedCode: "def recovered_task(): return True"
+      }]
+    });
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/api/humaneval/runs")) return jsonResponse({ runs: [recoveredRun] });
+      return jsonResponse({ ...recoveredRun, events: [] });
+    }));
+
+    render(<App />);
+
+    await userEvent.click(await screen.findByRole("button", { name: /HumanEval\/7/i }));
+    expect(await screen.findByText(/Generation continued to its normal finish\./)).toBeInTheDocument();
+    expect(screen.queryByText(/Generation stopped early\./)).not.toBeInTheDocument();
   });
 
   it("shows penalties for every completed adaptive task status", async () => {

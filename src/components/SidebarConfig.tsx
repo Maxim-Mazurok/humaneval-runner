@@ -86,7 +86,7 @@ export function SidebarConfig(props: SidebarConfigProps) {
           type="checkbox"
           onChange={(event) => props.setAdaptiveRepetitionPenalty(event.target.checked)}
         />
-        <span>Detect loops and adapt repetition penalty</span>
+        <span>Abort loops and adapt repetition penalty</span>
       </label>
       <label className="field">
         <span><FileText size={14} /> Benchmark</span>
