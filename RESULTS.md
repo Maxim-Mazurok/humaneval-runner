@@ -49,9 +49,10 @@ Conclusions:
 
 ## BBEH
 
-- [WIP 52/460 4.6%-93.3%] - 40.4% - 16384 thinking, 18432 tokens, 1 pass, Qwen3.6-27B-MXFP4, 18h32m, `BBEH Mini (corrected) · data 80d12ca+linguini-single-blank-v1`
+- [WIP 52/460 5%-93.7%] - 44.2% - 16384 thinking, 18432 tokens, 1 pass, Qwen3.6-27B-MXFP4, 18h32m, `BBEH Mini (corrected) · data 80d12ca+linguini-single-blank-v1`
 - [WIP 55/460 2.2%-90.2%] - 18.2% - 8192? thinking, 16384 tokens, 1 pass, gpt-oss-20b-MXFP4-Q8, 2h15m, `BBEH Mini (official data)`
 - [WIP 29/460 0%-93.7%] - 0% - 16384 thinking, 18432 tokens, 1 pass, gemma-4-12B-it-8bit + VLM MTP gemma-4-12B-it-qat-assistant-bf16 block-size 3, 8h14m, `BBEH Mini (corrected) · data 80d12ca+linguini-single-blank-v1` - looping all the time, both with default and 1.08 repetition penalty
+- [WIP 23/460 2%-97%] - 39.1% - 16384 thinking, 18432 tokens, 1 pass, gemma-4-12B-it-8bit, 13h, `BBEH Mini (corrected) · data 80d12ca+linguini-single-blank-v1`
 
 Conclusions:
-- gemma-4-12B-it-8bit keeps thinking whole token budget even when forced to answer when using VLM MTP gemma-4-12B-it-qat-assistant-bf16, without it - stops thinking at limit and answers; Likely fixed in https://github.com/jundot/omlx/commit/9387ebddf6f62b27ac0547ca82e09fd0f418bf40
+- gemma-4-12B-it-8bit keeps thinking whole token budget even when forced to answer when using VLM MTP gemma-4-12B-it-qat-assistant-bf16, without it - stops thinking at limit and answers; Disabled in https://github.com/jundot/omlx/commit/9387ebddf6f62b27ac0547ca82e09fd0f418bf40

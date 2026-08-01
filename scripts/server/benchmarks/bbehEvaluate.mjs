@@ -34,6 +34,9 @@ export function extractAnswer(sample) {
   if (answer.endsWith(".")) {
     answer = answer.slice(0, -1);
   }
+  if (answer.startsWith("<") && answer.endsWith(">")) {
+    answer = answer.slice(1, -1).trim();
+  }
   return stripLatex(answer);
 }
 

@@ -63,7 +63,7 @@ export function codeFingerprint(code) {
   return createHash("sha256").update(String(code)).digest("hex").slice(0, 12);
 }
 
-export async function discoverSavedRuns(runsDir) {
+export async function discoverSavedRuns(runsDir, { benchmarkIds = ["humaneval"] } = {}) {
   const entries = await fs.readdir(runsDir, { withFileTypes: true });
   const runs = [];
   for (const entry of entries) {
@@ -77,10 +77,8 @@ export async function discoverSavedRuns(runsDir) {
       const run = JSON.parse(runText);
       const results = JSON.parse(resultsText);
       if (!Array.isArray(results)) throw new Error("results.json is not an array");
-      // These migrations re-execute results as HumanEval Python candidates.
-      // Skip runs from other benchmarks (missing benchmark means HumanEval).
       const benchmark = run?.benchmark ?? run?.config?.benchmark ?? "humaneval";
-      if (benchmark !== "humaneval") continue;
+      if (benchmarkIds && !benchmarkIds.includes(benchmark)) continue;
       runs.push({ directory, directoryName: entry.name, run, results });
     } catch (error) {
       if (error?.code === "ENOENT") continue;

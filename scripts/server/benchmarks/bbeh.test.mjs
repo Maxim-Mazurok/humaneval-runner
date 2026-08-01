@@ -87,11 +87,13 @@ describe("bbeh evaluate (port of official evaluate.py)", () => {
   it("extracts answers after the last known answer prefix", () => {
     expect(extractAnswer("Reasoning. The answer is: 42.")).toBe("42");
     expect(extractAnswer("The answer is: 1. The answer is: 2")).toBe("2");
+    expect(extractAnswer("The answer is: <no,unknown,yes>")).toBe("no,unknown,yes");
     expect(extractAnswer("no prefix here")).toBe("no prefix here");
   });
 
   it("normalizes samples and references consistently", () => {
     expect(preprocessSample("  The answer is: **A, B**\nextra line ")).toBe("a,b");
+    expect(evaluateCorrectness("The answer is: <no,unknown,yes>", "no,unknown,yes")).toBe(true);
     expect(preprocessReference(" A, B ")).toBe("a,b");
     expect(fuzzyMatch("(a)", "a")).toBe(true);
     expect(fuzzyMatch("4.0", "4")).toBe(true);

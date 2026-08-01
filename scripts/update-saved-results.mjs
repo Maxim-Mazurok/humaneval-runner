@@ -3,6 +3,7 @@ import { promises as fs } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { compactResult, extractCodeFromOutput } from "./server/domain.mjs";
+import { getBenchmark } from "./server/benchmarks/registry.mjs";
 import { executeTests } from "./server/testHarness.mjs";
 import { discoverSavedRuns, storedResultStatus } from "./reprocess-saved-results.mjs";
 
@@ -19,7 +20,7 @@ export async function migrateSavedResults({
   now = () => new Date(),
   onProgress
 }) {
-  const savedRuns = await discoverSavedRuns(runsDir);
+  const savedRuns = await discoverSavedRuns(runsDir, { benchmarkIds: null });
   const migrationAt = now().toISOString();
   const resolvedBackupDir = backupDir || join(
     runsDir,
@@ -45,9 +46,12 @@ export async function migrateSavedResults({
       affected: [],
       savedRun
     };
+    const benchmarkId = savedRun.run.benchmark ?? savedRun.run.config?.benchmark ?? "humaneval";
+    const benchmark = getBenchmark(benchmarkId);
     savedRun.results.forEach((result, resultIndex) => {
       if (result.modelError || typeof result.rawOutput !== "string" || typeof result.prompt !== "string") return;
-      const extractedCode = extractCodeFromOutput(result.rawOutput, result.prompt);
+      const problem = storedProblem(result);
+      const extractedCode = benchmark.extractArtifact(result.rawOutput, problem);
       if (extractedCode === String(result.extractedCode ?? "")) return;
       const affected = {
         key: resultKey(result),
@@ -62,6 +66,8 @@ export async function migrateSavedResults({
       jobs.push({
         report,
         affected,
+        benchmark,
+        problem,
         result,
         resultIndex,
         extractedCode,
@@ -73,13 +79,17 @@ export async function migrateSavedResults({
 
   let completed = 0;
   await mapConcurrent(jobs, concurrency, async (job) => {
-    const testResult = await executeTestsFn({
-      task_id: job.result.taskId,
-      entry_point: job.result.entryPoint,
-      test: job.result.test
-    }, job.extractedCode, job.timeoutSeconds);
+    const testResult = job.benchmark.id === "humaneval"
+      ? await executeTestsFn(job.problem, job.extractedCode, job.timeoutSeconds)
+      : await job.benchmark.evaluate({
+        problem: job.problem,
+        artifact: job.extractedCode,
+        rawOutput: job.result.rawOutput,
+        timeoutSeconds: job.timeoutSeconds
+      });
     const updatedResult = {
       ...job.result,
+      ...testResult,
       passed: Boolean(testResult.passed),
       tests: testResult.tests || [],
       stdout: testResult.stdout || "",
@@ -125,6 +135,16 @@ export async function migrateSavedResults({
       ...report,
       affected: report.affected.map(({ updatedResult, key, ...affected }) => affected)
     }))
+  };
+}
+
+function storedProblem(result) {
+  return {
+    task_id: result.taskId,
+    entry_point: result.entryPoint,
+    test: result.test,
+    prompt: result.prompt,
+    target: result.expectedAnswer
   };
 }
 

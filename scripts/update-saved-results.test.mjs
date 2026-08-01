@@ -130,6 +130,45 @@ describe("saved result migration", () => {
     expect(executeTestsFn).not.toHaveBeenCalled();
   });
 
+  it("re-evaluates changed BBEH answers with the benchmark parser", async () => {
+    const runsDir = await fs.mkdtemp(join(tmpdir(), "bbeh-migration-test-"));
+    tempDirs.push(runsDir);
+    const runDir = join(runsDir, "run-directory");
+    await fs.mkdir(runDir);
+    await fs.writeFile(join(runDir, "run.json"), JSON.stringify({
+      id: "bbeh-run",
+      benchmark: "bbeh-mini",
+      model: "demo",
+      total: 1,
+      passed: 0,
+      config: { benchmark: "bbeh-mini" }
+    }));
+    await fs.writeFile(join(runDir, "results.json"), JSON.stringify([{
+      taskId: "bbeh_mini/22",
+      attemptId: "bbeh_mini/22::pass-1",
+      passNumber: 1,
+      passed: false,
+      tests: [{ passed: false }],
+      prompt: "Question?",
+      rawOutput: "The answer is: <no,unknown,yes>",
+      extractedCode: "<no,unknown,yes>",
+      expectedAnswer: "no, unknown, yes"
+    }]));
+    const executeTestsFn = vi.fn();
+
+    const report = await migrateSavedResults({ runsDir, apply: true, executeTestsFn });
+
+    expect(report.totals).toMatchObject({ changedRuns: 1, changedResults: 1, oldPassed: 0, newPassed: 1 });
+    expect(executeTestsFn).not.toHaveBeenCalled();
+    const results = JSON.parse(await fs.readFile(join(runDir, "results.json"), "utf8"));
+    expect(results[0]).toMatchObject({
+      passed: true,
+      extractedCode: "no,unknown,yes",
+      prediction: "no,unknown,yes",
+      tests: [{ passed: true, actual: "no,unknown,yes", expected: "no,unknown,yes" }]
+    });
+  });
+
   it("derives cached run and assertion counts from migrated results", () => {
     expect(derivedRunState({ total: 3 }, [
       { passed: true, tests: [{ passed: true }, { passed: true }] },

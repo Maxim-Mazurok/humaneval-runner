@@ -8,6 +8,7 @@ dist/
 # Local benchmark data and downloaded datasets
 benchmark-runs/
 .cache/
+/reports/
 
 # Local browser/tooling state
 .playwright-mcp/
