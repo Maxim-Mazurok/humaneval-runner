@@ -237,7 +237,7 @@ export function TaskResults({
                 <span className={`${primaryResultStatus(groupStatus, result)}-pill`}>
                   {primaryResultStatus(groupStatus, result)}
                 </span>
-                {group.attempts.some((attempt) => attempt.status === "loop") ? <span className="loop-pill">loop</span> : null}
+                {group.attempts.some((attempt) => attempt.result?.looping) ? <span className="loop-pill">loop</span> : null}
               </span>
               <strong>{group.taskId}</strong>
               <small>
@@ -272,7 +272,7 @@ export function TaskResults({
                             <span className={`${primaryResultStatus(tabGroup.status, attempt.result)}-pill`}>
                               {primaryResultStatus(tabGroup.status, attempt.result)}
                             </span>
-                            {tabGroup.status === "loop" ? <span className="loop-pill">loop</span> : null}
+                            {tabGroup.attempts.some((tabAttempt) => tabAttempt.result?.looping) ? <span className="loop-pill">loop</span> : null}
                           </span>
                           <strong>{passRangeLabel(tabGroup.startPass, tabGroup.endPass, passTotal)}</strong>
                           <small>

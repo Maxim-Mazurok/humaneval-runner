@@ -407,6 +407,52 @@ describe("App notifications", () => {
     expect(screen.queryByText(/Generation stopped early\./)).not.toBeInTheDocument();
   });
 
+  it("keeps a passing answer passed when generation stopped after a loop", async () => {
+    window.history.replaceState(null, "", "/run/run-1");
+    const passingLoopRun = baseRun({
+      status: "completed",
+      total: 1,
+      completed: 1,
+      passed: 1,
+      results: [{
+        taskId: "bbeh_mini/5",
+        attemptId: "bbeh_mini/5::pass-1",
+        passNumber: 1,
+        passTotal: 1,
+        index: 5,
+        entryPoint: "",
+        subtask: "mini",
+        passed: true,
+        looping: true,
+        loopDetection: {
+          channel: "thinking",
+          repetitions: 64,
+          patternWords: 34,
+          matchedWords: 2_176,
+          excerpt: "repeated reasoning"
+        },
+        tests: [{ source: "final answer matches target", passed: true }],
+        prompt: "Task input",
+        test: "Expected answer: 5",
+        rawOutput: "The answer is: 5",
+        thinkingOutput: "repeated reasoning",
+        extractedCode: "5"
+      }]
+    });
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/api/humaneval/runs")) return jsonResponse({ runs: [passingLoopRun] });
+      return jsonResponse({ ...passingLoopRun, events: [] });
+    }));
+
+    render(<App />);
+
+    const taskButton = await screen.findByRole("button", { name: /bbeh_mini\/5/i });
+    expect(taskButton.querySelector(".status-badges")).toHaveTextContent("passloop");
+    expect(within(taskButton).getByText("pass")).toHaveClass("pass-pill");
+    expect(within(taskButton).getByText("loop")).toHaveClass("loop-pill");
+  });
+
   it("shows penalties for every completed adaptive task status", async () => {
     window.history.replaceState(null, "", "/run/run-1");
     const resultBase = {

@@ -99,15 +99,19 @@ describe("run domain helpers", () => {
     const assertionFailure = result({ index: 4, passed: false, tests: [{ source: "assert a", passed: false }] });
     const harnessError = result({ index: 9, passed: false, tests: [], traceback: "SyntaxError" });
     const looping = result({ index: 12, passed: false, tests: [], looping: true });
+    const passingLoop = result({ index: 13, passed: true, tests: [{ source: "answer matches", passed: true }], looping: true });
     const sample = run({ results: [assertionFailure, harnessError, looping] });
 
     expect(resultStatus(assertionFailure)).toBe("fail");
     expect(resultStatus(harnessError)).toBe("error");
     expect(resultStatus(looping)).toBe("loop");
+    expect(resultStatus(passingLoop)).toBe("pass");
+    expect(failureStats([passingLoop])).toEqual({ failedAssertions: 0, errors: 0, looping: 0 });
     expect(failureStats(sample.results)).toEqual({ failedAssertions: 1, errors: 1, looping: 1 });
     expect(resultNumbers(sample, "fail")).toBe("4");
     expect(resultNumbers(sample, "error")).toBe("9");
     expect(resultNumbers(sample, "loop")).toBe("12");
+    expect(resultNumbers(run({ results: [passingLoop] }), "pass")).toBe("13");
 
     const repeatedPasses = run({
       results: [

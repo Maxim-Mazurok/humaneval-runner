@@ -302,8 +302,8 @@ export function formatAssert(test: BenchResult["tests"][number]) {
 export type CompletedResultStatus = "pass" | "fail" | "error" | "loop";
 
 export function resultStatus(result: BenchResult): CompletedResultStatus {
-  if (result.looping) return "loop";
   if (result.passed) return "pass";
+  if (result.looping) return "loop";
   return result.tests.length > 0 ? "fail" : "error";
 }
 
