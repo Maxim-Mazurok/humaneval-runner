@@ -139,24 +139,25 @@ Set `Parallel` to the number of benchmark tasks to solve at once. The default is
 `1`, which preserves sequential execution. Higher values send multiple model
 requests concurrently and can make runs faster if your endpoint supports it.
 
-Enable `Detect loops and adapt repetition penalty` to run tasks sequentially
-and stop a generation after five immediately adjacent repetitions of the same
-body of at least 24 normalized words. Punctuation and whitespace may separate
-the bodies, but no additional normalized words may appear between them. Enabling
-it sets and disables `Parallel` at `1`. The first task uses the positive
-`Starting penalty`; there is no upper limit. A looping task is saved as `LOOP`,
-then the next task uses a penalty 10% higher. After a generation without a
-detected loop, the next penalty is 5% lower, but never at or below a penalty
-already observed looping. Penalties are calculated in hundredths. If rounding
-would repeat a tested value or land on the known looping boundary, the runner
-selects the nearest untried hundredth above that boundary. Saved task results
-include the penalty, detector version, thresholds, and exact character ranges
-for each cycle, so interrupted
-adaptive runs resume from reconstructed state and the UI can mark every loop's
-start and end in purple. Token-limit detection uses the same adjacency rule,
-with a minimum body length of eight normalized words when long thinking has no
-usable final output. Model errors and cancelled attempts do not change the
-adaptive state.
+Every run stops a generation after five immediately adjacent repetitions of
+the same body of at least 24 normalized words. Punctuation and whitespace may
+separate the bodies, but no additional normalized words may appear between
+them. A looping task is saved with a `LOOP` classification and exact character
+ranges so the UI can mark every loop's start and end in purple.
+
+Enable `Detect loops and adapt repetition penalty` to additionally run tasks
+sequentially and adapt the request penalty. Enabling it sets and disables
+`Parallel` at `1`. The first task uses the positive `Starting penalty`; there is
+no upper limit. After a loop, the next task uses a penalty 10% higher. After a
+generation without a detected loop, the next penalty is 5% lower, but never at
+or below a penalty already observed looping. Penalties are calculated in
+hundredths. If rounding would repeat a tested value or land on the known
+looping boundary, the runner selects the nearest untried hundredth above that
+boundary. Saved adaptive task results include the penalty, detector version,
+and thresholds so interrupted runs resume from reconstructed state. Token-limit
+detection uses the same adjacency rule, with a minimum body length of eight
+normalized words when long thinking has no usable final output. Model errors
+and cancelled attempts do not change the adaptive state.
 
 Set `Passes` to rerun the same selected benchmark set multiple times. The runner
 executes the whole task set for pass 1, then the whole task set for pass 2, and
@@ -197,10 +198,11 @@ npm run migrate:loop-detection
 npm run migrate:loop-detection -- --apply
 ```
 
-The migration reruns older loop classifications under the current detector,
-retains strict loops, and clears non-contiguous matches as retryable model
-errors. Applying it backs up each changed `results.json` beneath
-`benchmark-runs/.migration-backups/` and is safe to run again.
+The migration scans every saved result under the current detector, adds newly
+detected loops, retains strict legacy loops, and clears non-contiguous legacy
+matches as retryable model errors. Applying it backs up each changed
+`results.json` beneath `benchmark-runs/.migration-backups/` and is safe to run
+again.
 
 ## Run Artifacts
 

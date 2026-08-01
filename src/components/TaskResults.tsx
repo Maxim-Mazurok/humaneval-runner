@@ -15,8 +15,12 @@ import { recordTaskResultsRenderMeasurement, textByteLength } from "../domain/pe
 import { formatAssert, formatDuration, pct, runPassCount } from "../domain/runs";
 import { orderedChannelOutput } from "../domain/tasks";
 
-function primaryResultStatus(status: TaskGroup["attempts"][number]["status"]) {
-  return status === "loop" ? "error" : status;
+function primaryResultStatus(
+  status: TaskGroup["attempts"][number]["status"],
+  result?: BenchResult
+) {
+  if (status !== "loop") return status;
+  return result?.tests.length ? "fail" : "error";
 }
 
 function LoopHighlightedText({
@@ -230,7 +234,9 @@ export function TaskResults({
             <button type="button" onClick={() => setExpanded((prev) => ({ ...prev, [group.taskId]: !isOpen }))}>
               {isOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
               <span className="status-badges">
-                <span className={`${primaryResultStatus(groupStatus)}-pill`}>{primaryResultStatus(groupStatus)}</span>
+                <span className={`${primaryResultStatus(groupStatus, result)}-pill`}>
+                  {primaryResultStatus(groupStatus, result)}
+                </span>
                 {group.attempts.some((attempt) => attempt.status === "loop") ? <span className="loop-pill">loop</span> : null}
               </span>
               <strong>{group.taskId}</strong>
@@ -263,8 +269,8 @@ export function TaskResults({
                           onClick={() => setSelectedPassByTask((prev) => ({ ...prev, [group.taskId]: tabGroup.startPass }))}
                         >
                           <span className="status-badges">
-                            <span className={`${primaryResultStatus(tabGroup.status)}-pill`}>
-                              {primaryResultStatus(tabGroup.status)}
+                            <span className={`${primaryResultStatus(tabGroup.status, attempt.result)}-pill`}>
+                              {primaryResultStatus(tabGroup.status, attempt.result)}
                             </span>
                             {tabGroup.status === "loop" ? <span className="loop-pill">loop</span> : null}
                           </span>

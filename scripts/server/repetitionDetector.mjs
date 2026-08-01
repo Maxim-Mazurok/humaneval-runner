@@ -153,31 +153,34 @@ function sourceTextForChannel(result, channel) {
 
 export function reconstructSavedLoopDetection(result) {
   const savedDetection = result?.loopDetection;
-  if (!result?.looping || !savedDetection) return null;
   if (
-    savedDetection.detectorVersion === LOOP_DETECTOR_VERSION
+    savedDetection?.detectorVersion === LOOP_DETECTOR_VERSION
     && Array.isArray(savedDetection.occurrences)
     && savedDetection.occurrences.length
   ) return savedDetection;
 
-  const channels = savedDetection.channel
+  const channels = savedDetection?.channel
     ? [savedDetection.channel]
     : ["thinking", "output"];
   for (const channel of channels) {
     const text = sourceTextForChannel(result, channel);
     if (!text) continue;
-    const redetected = detectRepetitionLoop(text, savedDetection.detectionMode === "token-limit"
+    const redetected = detectRepetitionLoop(text, savedDetection?.detectionMode === "token-limit"
       ? { minimumPatternWords: TOKEN_LIMIT_PATTERN_WORDS }
       : undefined);
     if (redetected) {
       return {
         ...redetected,
         channel,
-        ...(savedDetection.detectionMode ? { detectionMode: savedDetection.detectionMode } : {})
+        ...(savedDetection?.detectionMode ? { detectionMode: savedDetection.detectionMode } : {})
       };
     }
   }
-  return null;
+  return detectTokenLimitRepetitionLoop({
+    thinking: result?.thinkingOutput,
+    output: result?.rawOutput,
+    finishReason: result?.finishReason
+  });
 }
 
 function wordsMatch(words, leftStart, rightStart, wordCount) {

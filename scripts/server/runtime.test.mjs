@@ -225,7 +225,7 @@ describe("runtime server", () => {
     expect(detail.events.some((event) => event.type === "loop-detected")).toBe(true);
   });
 
-  it("does not stop loops when adaptive repetition penalties are disabled", async () => {
+  it("stops loops without adapting repetition penalties when adaptive mode is disabled", async () => {
     const rootDir = await makeRootDir();
     const model = await startModelServer([loopingThenGoodModelHandler]);
     const { apiUrl } = await startRuntime(rootDir);
@@ -238,12 +238,14 @@ describe("runtime server", () => {
 
     expect(detail.results[0]).toMatchObject({
       taskId: "HumanEval/0",
-      passed: true,
-      finishReason: "stop"
+      passed: false,
+      looping: true,
+      finishReason: "loop",
+      loopDetection: { channel: "thinking", repetitions: 5 }
     });
-    expect(detail.results[0].looping).toBeUndefined();
-    expect(detail.results[0].loopDetection).toBeUndefined();
-    expect(detail.events.some((event) => event.type === "loop-detected")).toBe(false);
+    expect(detail.results[0].repetitionPenalty).toBeUndefined();
+    expect(detail.events.some((event) => event.type === "loop-detected")).toBe(true);
+    expect(detail.events.some((event) => event.type === "repetition-penalty-updated")).toBe(false);
   });
 
   it("completes a full run: scores, events, artifacts, task logs, SSE replay", async () => {

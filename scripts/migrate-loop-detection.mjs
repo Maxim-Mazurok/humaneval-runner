@@ -62,14 +62,16 @@ export async function migrateLoopDetectionMetadata({
 
       const affected = [];
       const updatedResults = savedRun.results.map((result, resultIndex) => {
-        if (!result?.looping) return result;
         if (
+          result?.looping
+          &&
           result.loopDetection?.detectorVersion === LOOP_DETECTOR_VERSION
           && Array.isArray(result.loopDetection.occurrences)
           && result.loopDetection.occurrences.length
         ) return result;
         const reconstructedDetection = reconstructSavedLoopDetection(result);
         if (!reconstructedDetection?.occurrences?.length) {
+          if (!result?.looping) return result;
           affected.push({
             taskId: String(result.taskId || `result-${resultIndex}`),
             index: Number.isFinite(Number(result.index)) ? Number(result.index) : null,
@@ -78,13 +80,14 @@ export async function migrateLoopDetectionMetadata({
           });
           return clearLegacyLoopClassification(result);
         }
+        const action = result?.looping ? "retained" : "detected";
         affected.push({
           taskId: String(result.taskId || `result-${resultIndex}`),
           index: Number.isFinite(Number(result.index)) ? Number(result.index) : null,
-          action: "retained",
+          action,
           occurrences: reconstructedDetection.occurrences.length
         });
-        return { ...result, loopDetection: reconstructedDetection };
+        return { ...result, looping: true, loopDetection: reconstructedDetection };
       });
 
       if (apply && affected.length) {
@@ -102,6 +105,7 @@ export async function migrateLoopDetectionMetadata({
         model: String(savedRun.run.model || savedRun.run.config?.model || "unknown"),
         changedResults: affected.length,
         retainedResults: affected.filter((result) => result.action === "retained").length,
+        detectedResults: affected.filter((result) => result.action === "detected").length,
         clearedResults: affected.filter((result) => result.action === "cleared").length,
         affected
       });
@@ -112,6 +116,7 @@ export async function migrateLoopDetectionMetadata({
         loadError: error instanceof Error ? error.message : String(error),
         changedResults: 0,
         retainedResults: 0,
+        detectedResults: 0,
         clearedResults: 0,
         affected: []
       });
@@ -130,6 +135,7 @@ export async function migrateLoopDetectionMetadata({
       changedRuns: changedRuns.length,
       changedResults: reports.reduce((total, report) => total + report.changedResults, 0),
       retainedResults: reports.reduce((total, report) => total + report.retainedResults, 0),
+      detectedResults: reports.reduce((total, report) => total + report.detectedResults, 0),
       clearedResults: reports.reduce((total, report) => total + report.clearedResults, 0)
     },
     runs: reports

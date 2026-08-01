@@ -326,7 +326,10 @@ describe("App notifications", () => {
           excerpt: "repeated reasoning",
           occurrences
         },
-        tests: [],
+        tests: [{
+          source: "assert looping_task()",
+          passed: false
+        }],
         prompt: "def looping_task(): pass",
         test: "assert looping_task()",
         rawOutput: "",
@@ -345,8 +348,8 @@ describe("App notifications", () => {
 
     const taskButton = await screen.findByRole("button", { name: /HumanEval\/7/i });
     const taskBadges = taskButton.querySelector(".status-badges");
-    expect(taskBadges).toHaveTextContent("errorloop");
-    expect(within(taskButton).getByText("error")).toHaveClass("error-pill");
+    expect(taskBadges).toHaveTextContent("failloop");
+    expect(within(taskButton).getByText("fail")).toHaveClass("fail-pill");
     expect(within(taskButton).getByText("loop")).toHaveClass("loop-pill");
     expect(screen.getByText("Looping")).toBeInTheDocument();
     await userEvent.click(taskButton);

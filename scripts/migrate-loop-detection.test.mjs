@@ -59,6 +59,15 @@ describe("loop detection metadata migration", () => {
           excerpt: tokenLimitPhrase,
           detectionMode: "token-limit"
         }
+      },
+      {
+        taskId: "bbeh_mini/2",
+        index: 2,
+        passed: false,
+        tests: [{ source: "answer matches", passed: false }],
+        thinkingOutput: `${streamCycle}. `.repeat(5),
+        rawOutput: "incorrect answer",
+        finishReason: "length"
       }
     ];
     await fs.writeFile(join(runDirectory, "results.json"), JSON.stringify(originalResults));
@@ -66,8 +75,9 @@ describe("loop detection metadata migration", () => {
     const preview = await migrateLoopDetectionMetadata({ runsDirectory });
     expect(preview.totals).toMatchObject({
       changedRuns: 1,
-      changedResults: 2,
+      changedResults: 3,
       retainedResults: 1,
+      detectedResults: 1,
       clearedResults: 1
     });
     expect(JSON.parse(await fs.readFile(join(runDirectory, "results.json"), "utf8"))).toEqual(originalResults);
@@ -91,6 +101,16 @@ describe("loop detection metadata migration", () => {
     });
     expect(updatedResults[1]).not.toHaveProperty("looping");
     expect(updatedResults[1]).not.toHaveProperty("loopDetection");
+    expect(updatedResults[2]).toMatchObject({
+      passed: false,
+      looping: true,
+      finishReason: "length",
+      loopDetection: {
+        channel: "thinking",
+        detectorVersion: "4"
+      }
+    });
+    expect(updatedResults[2].tests).toEqual([{ source: "answer matches", passed: false }]);
     expect(JSON.parse(await fs.readFile(
       join(backupDirectory, "saved-bbeh-run", "results.json"),
       "utf8"
@@ -101,6 +121,7 @@ describe("loop detection metadata migration", () => {
       changedRuns: 0,
       changedResults: 0,
       retainedResults: 0,
+      detectedResults: 0,
       clearedResults: 0
     });
   });

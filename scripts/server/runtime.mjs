@@ -259,7 +259,6 @@ export function createRuntimeServer({
     }
 
     function detectStreamLoop(force = false) {
-      if (!run.adaptiveRepetitionPenalty) return null;
       for (const [channel, text] of [["thinking", thinking], ["output", output]]) {
         if (!force && text.length - lastLoopCheckCharacters[channel] < LOOP_DETECTION_CHECK_INTERVAL_CHARACTERS) continue;
         lastLoopCheckCharacters[channel] = text.length;
@@ -516,7 +515,7 @@ export function createRuntimeServer({
               passed: false,
               looping: true,
               loopDetection: generation.loopDetection,
-              repetitionPenalty: context.repetitionPenalty,
+              ...(run.adaptiveRepetitionPenalty ? { repetitionPenalty: context.repetitionPenalty } : {}),
               tests: [],
               instructionPrompt: buildPromptMessages(problem, run.systemPrompt, run.promptTemplate).map((message) => `${message.role.toUpperCase()}:\n${message.content}`).join("\n\n"),
               prompt: problem.prompt,
