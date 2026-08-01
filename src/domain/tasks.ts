@@ -97,6 +97,7 @@ export function taskGroupsFromRun(
     rows.set(key, {
       key,
       taskId,
+      startedAt: selectedRun?.activeTaskStartedAt?.[taskId],
       passNumber,
       passTotal: runPassCount(selectedRun),
       index: Number.isFinite(tokenIndex) ? Number(tokenIndex) : fallbackIndex,

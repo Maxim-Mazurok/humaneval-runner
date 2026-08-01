@@ -23,6 +23,7 @@ type RunFixture = {
   selectedIndices?: number[];
   config?: Record<string, unknown>;
   activeTaskIds?: string[];
+  activeTaskStartedAt?: Record<string, string>;
   results: Array<Record<string, unknown>>;
 };
 
@@ -612,6 +613,30 @@ describe("App notifications", () => {
 
     const taskRow = await screen.findByRole("button", { name: /bbeh_mini\/1/i });
     expect(taskRow).toHaveTextContent(/4m [01]s · penalty 1\.1 · in progress/);
+  });
+
+  it("restores running task elapsed time when its start event is no longer replayable", async () => {
+    window.history.replaceState(null, "", "/run/run-1");
+    const taskIdentifier = "HumanEval/4";
+    const runningRun = baseRun({
+      status: "running",
+      currentTaskId: taskIdentifier,
+      activeTaskIds: [taskIdentifier],
+      activeTaskStartedAt: {
+        [taskIdentifier]: new Date(Date.now() - 4 * 60 * 1_000).toISOString()
+      }
+    });
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/api/humaneval/runs")) return jsonResponse({ runs: [runningRun] });
+      return jsonResponse({ ...runningRun, events: [] });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+
+    const taskRow = await screen.findByRole("button", { name: /HumanEval\/4/i });
+    expect(taskRow).toHaveTextContent(/4m [01]s · in progress/);
   });
 
   it("keeps full live output and running task prompts after many tokens", async () => {

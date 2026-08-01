@@ -120,7 +120,11 @@ describe("server domain helpers", () => {
   });
 
   it("summarizes runs without leaking bulky result fields into compact events", () => {
-    const run = runFixture();
+    const run = runFixture({
+      currentTaskId: "HumanEval/1",
+      activeTaskIds: ["HumanEval/1"],
+      activeTaskStartedAt: { "HumanEval/1": "2026-06-16T00:00:02.000Z" }
+    });
     const summary = runSummary(run);
     const compact = compactResult(run.results[0]);
 
@@ -131,6 +135,7 @@ describe("server domain helpers", () => {
       assertionsPassed: 1,
       assertionsTotal: 1,
       assertionScore: 1,
+      activeTaskStartedAt: { "HumanEval/1": "2026-06-16T00:00:02.000Z" },
       config: { baseUrl: "http://localhost:8000/v1", model: "demo-model", maxTokens: 2048 }
     });
     expect(runSummary(run, { includeResults: false }).results).toEqual([]);

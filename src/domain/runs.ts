@@ -123,7 +123,8 @@ export function currentTaskStartedAtMs(run: BenchRun | null, events: EventEnvelo
     const timestamp = new Date(event.at).getTime();
     return Number.isFinite(timestamp) ? timestamp : null;
   }
-  return null;
+  const persistedTimestamp = new Date(run.activeTaskStartedAt?.[run.currentTaskId] ?? "").getTime();
+  return Number.isFinite(persistedTimestamp) ? persistedTimestamp : null;
 }
 
 export function statusIsLive(status?: string) {

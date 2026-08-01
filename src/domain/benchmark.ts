@@ -230,6 +230,7 @@ export type BenchRun = {
     extraBody?: Record<string, unknown>;
   };
   activeTaskIds?: string[];
+  activeTaskStartedAt?: Record<string, string>;
   results: BenchResult[];
 };
 

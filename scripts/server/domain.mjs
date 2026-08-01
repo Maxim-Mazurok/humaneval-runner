@@ -77,6 +77,7 @@ export function runSummary(run, { includeResults = true } = {}) {
     assertionScore: assertionsTotal ? assertionsPassed / assertionsTotal : 0,
     currentTaskId: run.currentTaskId,
     activeTaskIds: run.activeTaskIds || [],
+    activeTaskStartedAt: run.activeTaskStartedAt || {},
     config: {
       baseUrl: run.baseUrl,
       model: run.model,

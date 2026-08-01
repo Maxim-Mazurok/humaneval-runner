@@ -405,6 +405,7 @@ export function createRuntimeServer({
       run.total = problems.length * passCount;
       syncRunCountsFromResults(run);
       run.activeTaskIds = [];
+      run.activeTaskStartedAt = {};
       const completedAttemptIds = new Set(run.results.map(resultAttemptId).filter(Boolean));
       appendEvent(run, "run-started", {
         summary: runSummary(run, { includeResults: false }),
@@ -414,6 +415,7 @@ export function createRuntimeServer({
 
       async function finishTask(result) {
         run.activeTaskIds = (run.activeTaskIds || []).filter((taskId) => taskId !== result.taskId);
+        delete run.activeTaskStartedAt?.[result.taskId];
         run.currentTaskId = run.activeTaskIds[run.activeTaskIds.length - 1] || null;
         run.results.push(result);
         await appendTaskLogs(run, result);
@@ -427,6 +429,10 @@ export function createRuntimeServer({
         if (run.cancelled) throw new Error("Run cancelled.");
         const taskStartedAtMilliseconds = Date.now();
         run.activeTaskIds = [...new Set([...(run.activeTaskIds || []), problem.task_id])];
+        run.activeTaskStartedAt = {
+          ...(run.activeTaskStartedAt || {}),
+          [problem.task_id]: new Date(taskStartedAtMilliseconds).toISOString()
+        };
         run.currentTaskId = problem.task_id;
         const context = {
           attemptId,
@@ -579,6 +585,7 @@ export function createRuntimeServer({
           await finishTask(result);
         } finally {
           run.activeTaskIds = (run.activeTaskIds || []).filter((taskId) => taskId !== problem.task_id);
+          delete run.activeTaskStartedAt?.[problem.task_id];
           run.currentTaskId = run.activeTaskIds[run.activeTaskIds.length - 1] || null;
         }
       }
@@ -620,6 +627,7 @@ export function createRuntimeServer({
       run.status = "completed";
       run.finishedAt = new Date().toISOString();
       run.activeTaskIds = [];
+      run.activeTaskStartedAt = {};
       run.currentTaskId = null;
       appendEvent(run, "done", { summary: runSummary(run, { includeResults: false }) });
       logTerminalRunPerformance(run, run.status);
@@ -628,6 +636,7 @@ export function createRuntimeServer({
       run.status = run.cancelled ? "cancelled" : "error";
       run.finishedAt = new Date().toISOString();
       run.activeTaskIds = [];
+      run.activeTaskStartedAt = {};
       run.currentTaskId = null;
       appendEvent(run, "error", { message: error instanceof Error ? error.message : String(error), summary: runSummary(run, { includeResults: false }) });
       logTerminalRunPerformance(run, run.status);
@@ -708,6 +717,7 @@ export function createRuntimeServer({
       failed: 0,
       currentTaskId: null,
       activeTaskIds: [],
+      activeTaskStartedAt: {},
       results: [],
       events: [],
       eventSeq: 0,
@@ -747,6 +757,7 @@ export function createRuntimeServer({
     run.status = "queued";
     run.finishedAt = null;
     run.activeTaskIds = [];
+    run.activeTaskStartedAt = {};
     run.currentTaskId = null;
     run.abortController = null;
     run.abortControllers = new Set();
@@ -774,6 +785,7 @@ export function createRuntimeServer({
           ...persistedRuntimeConfig,
           dir,
           activeTaskIds: [],
+          activeTaskStartedAt: {},
           events: [],
           eventSeq: 0,
           results: Array.isArray(results) ? results : [],
