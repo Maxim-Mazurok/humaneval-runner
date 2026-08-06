@@ -1,4 +1,4 @@
-export const NOTIFY_DISABLED_RUNS_STORAGE_KEY = "humaneval.notify.disabledRuns";
+export const NOTIFY_DISABLED_RUNS_STORAGE_KEY = "llmEval.notify.disabledRuns";
 
 export type RunNotificationSummary = {
   id: string;

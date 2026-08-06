@@ -122,7 +122,7 @@ describe("App notifications", () => {
 
   afterEach(() => {
     cleanup();
-    delete window.humanEvalPerformanceMetrics;
+    delete window.llmEvalPerformanceMetrics;
     vi.useRealTimers();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
@@ -132,10 +132,10 @@ describe("App notifications", () => {
     const notificationCalls = installNotificationMock();
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url.endsWith("/api/humaneval/runs") && init?.method === "POST") {
+      if (url.endsWith("/api/runs") && init?.method === "POST") {
         return jsonResponse(baseRun({ status: "queued" }), 201);
       }
-      if (url.endsWith("/api/humaneval/runs")) {
+      if (url.endsWith("/api/runs")) {
         return jsonResponse({ runs: [] });
       }
       return jsonResponse(baseRun({ events: [] } as Partial<RunFixture>));
@@ -174,7 +174,7 @@ describe("App notifications", () => {
     let listCalls = 0;
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.endsWith("/api/humaneval/runs")) {
+      if (url.endsWith("/api/runs")) {
         listCalls += 1;
         const run = listCalls === 1
           ? baseRun({ status: "running", completed: 1, passed: 1, activeTaskIds: ["HumanEval/1"] })
@@ -221,7 +221,7 @@ describe("App notifications", () => {
     } as Partial<RunFixture>);
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.endsWith("/api/humaneval/runs")) {
+      if (url.endsWith("/api/runs")) {
         return jsonResponse({ runs: [runWithConfig] });
       }
       return jsonResponse({ ...runWithConfig, events: [] });
@@ -251,10 +251,10 @@ describe("App notifications", () => {
   it("posts the normalized benchmark configuration when starting a run", async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url.endsWith("/api/humaneval/runs") && init?.method === "POST") {
+      if (url.endsWith("/api/runs") && init?.method === "POST") {
         return jsonResponse(baseRun({ status: "queued", config: { model: "configured-model" } }), 201);
       }
-      if (url.endsWith("/api/humaneval/runs")) {
+      if (url.endsWith("/api/runs")) {
         return jsonResponse({ runs: [] });
       }
       return jsonResponse({ ...baseRun({ status: "queued" }), events: [] });
@@ -340,7 +340,7 @@ describe("App notifications", () => {
     });
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.endsWith("/api/humaneval/runs")) return jsonResponse({ runs: [loopingRun] });
+      if (url.endsWith("/api/runs")) return jsonResponse({ runs: [loopingRun] });
       return jsonResponse({ ...loopingRun, events: [] });
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -396,7 +396,7 @@ describe("App notifications", () => {
     });
     vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.endsWith("/api/humaneval/runs")) return jsonResponse({ runs: [recoveredRun] });
+      if (url.endsWith("/api/runs")) return jsonResponse({ runs: [recoveredRun] });
       return jsonResponse({ ...recoveredRun, events: [] });
     }));
 
@@ -441,7 +441,7 @@ describe("App notifications", () => {
     });
     vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.endsWith("/api/humaneval/runs")) return jsonResponse({ runs: [passingLoopRun] });
+      if (url.endsWith("/api/runs")) return jsonResponse({ runs: [passingLoopRun] });
       return jsonResponse({ ...passingLoopRun, events: [] });
     }));
 
@@ -481,7 +481,7 @@ describe("App notifications", () => {
     });
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.endsWith("/api/humaneval/runs")) return jsonResponse({ runs: [adaptiveRun] });
+      if (url.endsWith("/api/runs")) return jsonResponse({ runs: [adaptiveRun] });
       return jsonResponse({ ...adaptiveRun, events: [] });
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -518,7 +518,7 @@ describe("App notifications", () => {
     });
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.endsWith("/api/humaneval/runs")) return jsonResponse({ runs: [nonAdaptiveRun] });
+      if (url.endsWith("/api/runs")) return jsonResponse({ runs: [nonAdaptiveRun] });
       return jsonResponse({ ...nonAdaptiveRun, events: [] });
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -531,7 +531,7 @@ describe("App notifications", () => {
   it("does not post a run when extra request body is invalid", async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.endsWith("/api/humaneval/runs")) {
+      if (url.endsWith("/api/runs")) {
         return jsonResponse({ runs: [] });
       }
       return jsonResponse(baseRun({ events: [] } as Partial<RunFixture>));
@@ -602,10 +602,10 @@ describe("App notifications", () => {
     ];
     const fetchMock = vi.fn((input: RequestInfo | URL, requestInit?: RequestInit) => {
       const requestUrl = String(input);
-      if (requestUrl.endsWith("/api/humaneval/runs/run-1/resume") && requestInit?.method === "POST") {
+      if (requestUrl.endsWith("/api/runs/run-1/resume") && requestInit?.method === "POST") {
         return jsonResponse(resumedRun);
       }
-      if (requestUrl.endsWith("/api/humaneval/runs")) {
+      if (requestUrl.endsWith("/api/runs")) {
         return jsonResponse({ runs: [stoppedRun] });
       }
       return jsonResponse({ ...stoppedRun, events: staleEvents });
@@ -620,7 +620,7 @@ describe("App notifications", () => {
     await userEvent.click(resumeButton);
 
     expect(fetchMock).toHaveBeenCalledWith(
-      "http://localhost:8787/api/humaneval/runs/run-1/resume",
+      "http://localhost:8787/api/runs/run-1/resume",
       { method: "POST" }
     );
     await waitFor(() => expect(screen.queryByText(/old stale output/i)).not.toBeInTheDocument());
@@ -650,10 +650,10 @@ describe("App notifications", () => {
     });
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.endsWith("/api/humaneval/runs")) {
+      if (url.endsWith("/api/runs")) {
         return jsonResponse({ runs: [completedRun, runningRun] });
       }
-      if (url.endsWith("/api/humaneval/runs/run-2")) {
+      if (url.endsWith("/api/runs/run-2")) {
         return jsonResponse({ ...runningRun, events: [] });
       }
       return jsonResponse({ ...completedRun, events: [] });
@@ -695,7 +695,7 @@ describe("App notifications", () => {
     }];
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.endsWith("/api/humaneval/runs")) return jsonResponse({ runs: [runningRun] });
+      if (url.endsWith("/api/runs")) return jsonResponse({ runs: [runningRun] });
       return jsonResponse({ ...runningRun, events });
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -719,7 +719,7 @@ describe("App notifications", () => {
     });
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.endsWith("/api/humaneval/runs")) return jsonResponse({ runs: [runningRun] });
+      if (url.endsWith("/api/runs")) return jsonResponse({ runs: [runningRun] });
       return jsonResponse({ ...runningRun, events: [] });
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -779,7 +779,7 @@ describe("App notifications", () => {
     ];
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.endsWith("/api/humaneval/runs")) {
+      if (url.endsWith("/api/runs")) {
         return jsonResponse({ runs: [runningRun] });
       }
       return jsonResponse({ ...runningRun, events });
@@ -874,7 +874,7 @@ describe("App notifications", () => {
     } as Partial<RunFixture>);
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.endsWith("/api/humaneval/runs")) {
+      if (url.endsWith("/api/runs")) {
         return jsonResponse({ runs: [multiPassRun] });
       }
       return jsonResponse({ ...multiPassRun, events: [] });
@@ -956,7 +956,7 @@ describe("App notifications", () => {
     } as Partial<RunFixture>);
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.endsWith("/api/humaneval/runs")) {
+      if (url.endsWith("/api/runs")) {
         return jsonResponse({ runs: [pendingRun] });
       }
       return jsonResponse(pendingRun);
@@ -1019,7 +1019,7 @@ describe("App notifications", () => {
     } as Partial<RunFixture>);
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.endsWith("/api/humaneval/runs")) {
+      if (url.endsWith("/api/runs")) {
         return jsonResponse({ runs: [inProgressRun] });
       }
       return jsonResponse(inProgressRun);
@@ -1080,7 +1080,7 @@ describe("App notifications", () => {
     } as Partial<RunFixture>);
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.endsWith("/api/humaneval/runs")) {
+      if (url.endsWith("/api/runs")) {
         return jsonResponse({ runs: [groupedTaskRun] });
       }
       return jsonResponse({ ...groupedTaskRun, events: [] });
@@ -1159,7 +1159,7 @@ describe("App notifications", () => {
     let detailFetches = 0;
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.endsWith("/api/humaneval/runs")) {
+      if (url.endsWith("/api/runs")) {
         return jsonResponse({ runs: [runningRun] });
       }
       detailFetches += 1;
@@ -1245,7 +1245,7 @@ describe("App notifications", () => {
     });
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.endsWith("/api/humaneval/runs")) {
+      if (url.endsWith("/api/runs")) {
         return jsonResponse({ runs: [runningRun] });
       }
       return jsonResponse({ ...runningRun, events: [] });
@@ -1279,7 +1279,7 @@ describe("App notifications", () => {
     });
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.endsWith("/api/humaneval/runs")) {
+      if (url.endsWith("/api/runs")) {
         return jsonResponse({ runs: [runningRun] });
       }
       return jsonResponse({ ...runningRun, events: [] });
@@ -1326,10 +1326,10 @@ describe("App notifications", () => {
     });
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.endsWith("/api/humaneval/runs")) {
+      if (url.endsWith("/api/runs")) {
         return jsonResponse({ runs: [run] });
       }
-      if (url.endsWith("/api/humaneval/runs/run-2")) {
+      if (url.endsWith("/api/runs/run-2")) {
         return jsonResponse({ ...run, events: [] });
       }
       return jsonResponse({ error: "not found" }, 404);
@@ -1356,7 +1356,7 @@ describe("App notifications", () => {
     });
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.endsWith("/api/humaneval/runs")) {
+      if (url.endsWith("/api/runs")) {
         return jsonResponse({ runs: [run] });
       }
       return jsonResponse({ ...run, events: [] });
@@ -1410,7 +1410,7 @@ describe("App notifications", () => {
     });
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.endsWith("/api/humaneval/runs")) {
+      if (url.endsWith("/api/runs")) {
         return jsonResponse({ runs: [run] });
       }
       return jsonResponse({ ...run, events: [] });
@@ -1444,7 +1444,7 @@ describe("App notifications", () => {
     } as Partial<RunFixture>);
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.endsWith("/api/humaneval/runs")) {
+      if (url.endsWith("/api/runs")) {
         return jsonResponse({ runs: [run] });
       }
       return jsonResponse({ ...run, events: [] });
@@ -1481,10 +1481,10 @@ describe("App notifications", () => {
     });
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.endsWith("/api/humaneval/runs")) {
+      if (url.endsWith("/api/runs")) {
         return jsonResponse({ runs: [run] });
       }
-      if (url.endsWith("/api/humaneval/runs/run-1")) {
+      if (url.endsWith("/api/runs/run-1")) {
         return jsonResponse({
           ...run,
           events: [
@@ -1508,8 +1508,8 @@ describe("App notifications", () => {
 
     render(<App />);
 
-    await waitFor(() => expect(window.humanEvalPerformanceMetrics?.selectedRunFetches).toHaveLength(1));
-    expect(window.humanEvalPerformanceMetrics?.selectedRunFetches[0]).toMatchObject({
+    await waitFor(() => expect(window.llmEvalPerformanceMetrics?.selectedRunFetches).toHaveLength(1));
+    expect(window.llmEvalPerformanceMetrics?.selectedRunFetches[0]).toMatchObject({
       runId: "run-1",
       eventCount: 1,
       tokenEventCount: 0
@@ -1527,9 +1527,9 @@ describe("App notifications", () => {
       }
     });
 
-    await waitFor(() => expect(window.humanEvalPerformanceMetrics?.eventSource.eventTypes.token?.count).toBe(1));
-    expect(window.humanEvalPerformanceMetrics?.eventSource.tokenChannels.output.textBytes).toBeGreaterThan(0);
-    expect(window.humanEvalPerformanceMetrics?.state?.runId).toBe("run-1");
+    await waitFor(() => expect(window.llmEvalPerformanceMetrics?.eventSource.eventTypes.token?.count).toBe(1));
+    expect(window.llmEvalPerformanceMetrics?.eventSource.tokenChannels.output.textBytes).toBeGreaterThan(0);
+    expect(window.llmEvalPerformanceMetrics?.state?.runId).toBe("run-1");
   });
 
   it("does not expose performance metrics by default", async () => {
@@ -1546,10 +1546,10 @@ describe("App notifications", () => {
     });
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.endsWith("/api/humaneval/runs")) {
+      if (url.endsWith("/api/runs")) {
         return jsonResponse({ runs: [run] });
       }
-      if (url.endsWith("/api/humaneval/runs/run-1")) {
+      if (url.endsWith("/api/runs/run-1")) {
         return jsonResponse({ ...run, events: [] });
       }
       return jsonResponse({ error: "not found" }, 404);
@@ -1559,6 +1559,6 @@ describe("App notifications", () => {
     render(<App />);
 
     await waitFor(() => expect(screen.getByPlaceholderText("provider/model-name")).toHaveValue("no-metrics-model"));
-    expect(window.humanEvalPerformanceMetrics).toBeUndefined();
+    expect(window.llmEvalPerformanceMetrics).toBeUndefined();
   });
 });

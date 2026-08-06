@@ -28,7 +28,7 @@ process.env.PLAYWRIGHT_BENCH_API_URL = benchmarkApiUrl;
 export default defineConfig({
   testDir: "./tests/e2e",
   webServer: {
-    command: `HUMANEVAL_PORT=${benchmarkPort} HUMANEVAL_FRONTEND_PORT=${frontendPort} VITE_BENCH_API_URL=${benchmarkApiUrl} npm run dev`,
+    command: `LLM_EVAL_PORT=${benchmarkPort} LLM_EVAL_FRONTEND_PORT=${frontendPort} VITE_BENCH_API_URL=${benchmarkApiUrl} npm run dev`,
     url: frontendUrl,
     reuseExistingServer: false
   },

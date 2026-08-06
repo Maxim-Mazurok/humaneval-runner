@@ -1,7 +1,7 @@
 import { packBenchmarkOptions } from "./benchmarkPacks";
 
 export const BENCH_API = "http://localhost:8787";
-export const SIDEBAR_COLLAPSED_STORAGE_KEY = "humaneval.sidebar.collapsed";
+export const SIDEBAR_COLLAPSED_STORAGE_KEY = "llmEval.sidebar.collapsed";
 
 // Built-in ids are listed for readability; benchmark packs contribute ids this
 // repository knows nothing about, so the type stays open.

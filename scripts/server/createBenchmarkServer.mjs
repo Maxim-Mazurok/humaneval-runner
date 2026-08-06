@@ -205,14 +205,14 @@ export function createBenchmarkServer({
     try {
       if (req.method === "OPTIONS") return sendJson(res, 200, {});
       const url = new URL(req.url || "/", `http://${req.headers.host}`);
-      if (req.method === "GET" && url.pathname === "/api/humaneval/runs") {
+      if (req.method === "GET" && url.pathname === "/api/runs") {
         return sendJson(res, 200, { runs: [...runs.values()].map((run) => runSummary(run, { includeResults: false })) });
       }
-      if (req.method === "POST" && url.pathname === "/api/humaneval/runs") {
+      if (req.method === "POST" && url.pathname === "/api/runs") {
         const run = await createRun(await readJsonBody(req));
         return sendJson(res, 201, runSummary(run));
       }
-      const runMatch = url.pathname.match(/^\/api\/humaneval\/runs\/([^/]+)(?:\/events)?$/);
+      const runMatch = url.pathname.match(/^\/api\/runs\/([^/]+)(?:\/events)?$/);
       if (runMatch) {
         const run = runs.get(runMatch[1]);
         if (!run) return sendJson(res, 404, { error: "Run not found" });

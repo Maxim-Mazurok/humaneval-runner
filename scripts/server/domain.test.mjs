@@ -252,7 +252,7 @@ describe("server domain helpers", () => {
   });
 
   it("writes run and result artifacts with public run state", async () => {
-    const dir = await fs.mkdtemp(join(tmpdir(), "humaneval-artifacts-"));
+    const dir = await fs.mkdtemp(join(tmpdir(), "eval-artifacts-"));
     tempDirs.push(dir);
     const run = runFixture({
       completed: 463,

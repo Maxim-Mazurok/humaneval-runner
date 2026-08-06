@@ -1,15 +1,17 @@
 # Agent Guide
 
-This is a local LLM benchmark workbench (HumanEval, BBEH Mini/Full) for
-OpenAI-compatible chat completion endpoints. The README is the source of truth
-for setup, runtime workflow, and artifact details. Further benchmarks plug in
-as optional benchmark packs under `packs/`, which may live in their own
-repositories and carry their own datasets — see `packs/README.md`.
+This is a local LLM evaluation workbench for OpenAI-compatible chat completion
+endpoints. It ships built-in benchmarks (HumanEval, BBEH Mini/Full) and treats
+optional benchmark packs under `packs/` as a first-class extension point:
+public benchmarks, private datasets, and bespoke evaluations all plug in the
+same way, may live in their own repositories, and carry their own datasets —
+see `packs/README.md`. The README is the source of truth for setup, runtime
+workflow, and artifact details.
 
 ## Project Map
 
 - `src/` contains the React/Vite UI.
-- `scripts/humaneval-server.mjs` starts the local benchmark API server.
+- `scripts/eval-server.mjs` starts the local benchmark API server.
 - `scripts/server/runtime.mjs` contains the benchmark server runtime.
 - `scripts/server/benchmarks/` contains per-benchmark modules (data loading,
   prompts, answer/code extraction, scoring) behind a shared interface, plus

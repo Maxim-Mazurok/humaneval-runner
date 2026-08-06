@@ -117,7 +117,7 @@ export function TaskResults({
   setExpanded: (updater: (previous: Record<string, boolean>) => Record<string, boolean>) => void;
   setSelectedPassByTask: (updater: (previous: Record<string, number>) => Record<string, number>) => void;
 }) {
-  const performanceMetricsEnabled = typeof window !== "undefined" && Boolean(window.humanEvalPerformanceMetrics);
+  const performanceMetricsEnabled = typeof window !== "undefined" && Boolean(window.llmEvalPerformanceMetrics);
   const benchmarkKind = runBenchmarkKind(selectedRun);
   const isCodeBenchmark = benchmarkKind === "code";
   const isGradedBenchmark = runBenchmarkScoring(selectedRun) === "graded";

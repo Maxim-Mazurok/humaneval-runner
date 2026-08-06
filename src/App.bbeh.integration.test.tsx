@@ -134,10 +134,10 @@ describe("App bbeh benchmark", () => {
   it("switches prompts to BBEH defaults and posts the benchmark id", async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url.endsWith("/api/humaneval/runs") && init?.method === "POST") {
+      if (url.endsWith("/api/runs") && init?.method === "POST") {
         return jsonResponse(bbehRun({ status: "queued", completed: 0, passed: 0, failed: 0, results: [] }), 201);
       }
-      if (url.endsWith("/api/humaneval/runs")) {
+      if (url.endsWith("/api/runs")) {
         return jsonResponse({ runs: [] });
       }
       return jsonResponse({ ...bbehRun({ status: "queued", results: [] }), events: [] });
@@ -173,7 +173,7 @@ describe("App bbeh benchmark", () => {
     const run = bbehRun();
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.endsWith("/api/humaneval/runs")) {
+      if (url.endsWith("/api/runs")) {
         return jsonResponse({ runs: [run] });
       }
       return jsonResponse({ ...run, events: [] });
@@ -209,7 +209,7 @@ describe("App bbeh benchmark", () => {
     const run = bbehRun();
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.endsWith("/api/humaneval/runs")) {
+      if (url.endsWith("/api/runs")) {
         return jsonResponse({ runs: [run] });
       }
       return jsonResponse({ ...run, events: [] });

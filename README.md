@@ -1,31 +1,36 @@
 <!-- cspell:words OMLX -->
 
-# HumanEval Runner
+# LLM Eval Workbench
 
-A local web workbench for running LLM benchmarks against any OpenAI-compatible
-`/v1/chat/completions` endpoint. Supported benchmarks:
+A local web workbench for evaluating LLMs against any OpenAI-compatible
+`/v1/chat/completions` endpoint. It runs standard public benchmarks and your own
+custom evaluations through the same UI, run engine, and artifact format.
+
+Built-in benchmarks:
 
 - **HumanEval** — code generation, scored by executing the official tests.
 - **BBEH Mini / BBEH Full** — [BIG-Bench Extra Hard](https://github.com/google-deepmind/bbeh)
   reasoning tasks, with corrected and official-data variants scored by a
   faithful port of the official `evaluate.py` fuzzy answer matching.
 
-Additional benchmarks can be plugged in as optional **benchmark packs**
-installed under `packs/` — see [`packs/README.md`](packs/README.md).
+Anything else — additional public benchmarks, private datasets, or bespoke
+evaluations — plugs in as an optional **benchmark pack** installed under
+`packs/`, with no changes to this repository. See
+[`packs/README.md`](packs/README.md).
 
 The core workflow is simple: pick a benchmark, point the app at a model
 endpoint, edit the system prompt or user prompt template, start a subset or
 full run, and watch live pass/fail results stream in as each task completes.
 Each run uses exactly one benchmark.
 
-![HumanEval Runner live benchmark workbench](docs/screenshot.png)
+![LLM Eval Workbench live benchmark workbench](docs/screenshot.png)
 
 ## Features
 
 - React/Vite GUI for configuring benchmark runs.
-- Benchmark selector: HumanEval (code) or corrected/official-data BBEH
-  Mini/Full (reasoning), with per-benchmark default prompts and answer
-  extraction.
+- Benchmark selector: HumanEval (code), corrected/official-data BBEH Mini/Full
+  (reasoning), and any benchmarks contributed by installed packs, with
+  per-benchmark default prompts and answer extraction.
 - OpenAI-compatible streaming chat completions support.
 - Editable system prompt and per-benchmark prompt template.
 - Per-run thinking toggle, thinking budget, and max output tokens sent to the
@@ -81,17 +86,17 @@ http://localhost:5173
 ```
 
 The benchmark server listens on `http://localhost:8787` by default. Override it
-with `HUMANEVAL_PORT` if needed:
+with `LLM_EVAL_PORT` if needed:
 
 ```bash
-HUMANEVAL_PORT=8788 npm run dev:bench
+LLM_EVAL_PORT=8788 npm run dev:bench
 ```
 
 ## Performance Measurement
 
 The app includes debug-only performance instrumentation for diagnosing browser
 memory pressure before changing benchmark behavior. Enable it with
-`?debug=performance` in the browser and `HUMANEVAL_PERFORMANCE_LOG=1` on the
+`?debug=performance` in the browser and `LLM_EVAL_PERFORMANCE_LOG=1` on the
 benchmark server.
 
 See [docs/performance-measurements.md](docs/performance-measurements.md) for the

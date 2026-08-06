@@ -139,7 +139,7 @@ describe("runtime server", () => {
     const rootDir = await makeRootDir();
     const { apiUrl } = await startRuntime(rootDir);
 
-    const response = await fetch(`${apiUrl}/api/humaneval/runs`, {
+    const response = await fetch(`${apiUrl}/api/runs`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
@@ -225,7 +225,7 @@ describe("runtime server", () => {
     const model = await startModelServer([goodModelHandler]);
     const { apiUrl } = await startRuntime(rootDir);
 
-    const problemsResponse = await fetch(`${apiUrl}/api/humaneval/problems`).then((response) => response.json());
+    const problemsResponse = await fetch(`${apiUrl}/api/problems`).then((response) => response.json());
     expect(problemsResponse.total).toBe(3);
     expect(problemsResponse.problems[0]).toEqual({ taskId: "HumanEval/0", entryPoint: "add_one" });
 
@@ -273,7 +273,7 @@ describe("runtime server", () => {
     // API key never appears in the summary or persisted artifacts.
     expect(JSON.stringify(detail)).not.toContain("sk-secret");
 
-    const runsList = await fetch(`${apiUrl}/api/humaneval/runs`).then((response) => response.json());
+    const runsList = await fetch(`${apiUrl}/api/runs`).then((response) => response.json());
     expect(runsList.runs.map((run) => run.id)).toContain(created.id);
 
     const runDirs = await fs.readdir(join(rootDir, "benchmark-runs"));
@@ -293,7 +293,7 @@ describe("runtime server", () => {
     }
 
     // SSE endpoint replays past events for late subscribers.
-    const sseResponse = await fetch(`${apiUrl}/api/humaneval/runs/${created.id}/events`);
+    const sseResponse = await fetch(`${apiUrl}/api/runs/${created.id}/events`);
     const reader = sseResponse.body.getReader();
     let sseText = "";
     while (!sseText.includes("event: done")) {
@@ -408,13 +408,13 @@ describe("runtime server", () => {
       expect(hangingResponses.length).toBe(1);
     });
 
-    const cancelled = await fetch(`${apiUrl}/api/humaneval/runs/${created.id}/cancel`, { method: "POST" }).then((response) => response.json());
+    const cancelled = await fetch(`${apiUrl}/api/runs/${created.id}/cancel`, { method: "POST" }).then((response) => response.json());
     expect(cancelled.status === "cancelled" || cancelled.status === "running").toBe(true);
     const afterCancel = await waitForStatus(apiUrl, created.id, ["cancelled"]);
     expect(afterCancel).toMatchObject({ completed: 1, failed: 1 });
     expect(afterCancel.results[0]).toMatchObject({ looping: true, repetitionPenalty: 0.5 });
 
-    const resumed = await fetch(`${apiUrl}/api/humaneval/runs/${created.id}/resume`, { method: "POST" }).then((response) => response.json());
+    const resumed = await fetch(`${apiUrl}/api/runs/${created.id}/resume`, { method: "POST" }).then((response) => response.json());
     expect(resumed.status).toBe("queued");
     const detail = await waitForStatus(apiUrl, created.id, ["completed"]);
     expect(detail).toMatchObject({ completed: 3, passed: 2, failed: 1 });
@@ -435,9 +435,9 @@ describe("runtime server", () => {
     const created = await createRun(apiUrl, model.baseUrl, { testNumbers: "0" });
     await waitForStatus(apiUrl, created.id, ["completed"]);
 
-    const deleted = await fetch(`${apiUrl}/api/humaneval/runs/${created.id}`, { method: "DELETE" }).then((response) => response.json());
+    const deleted = await fetch(`${apiUrl}/api/runs/${created.id}`, { method: "DELETE" }).then((response) => response.json());
     expect(deleted).toEqual({ ok: true });
-    const missing = await fetch(`${apiUrl}/api/humaneval/runs/${created.id}`);
+    const missing = await fetch(`${apiUrl}/api/runs/${created.id}`);
     expect(missing.status).toBe(404);
     const runDirs = await fs.readdir(join(rootDir, "benchmark-runs"));
     expect(runDirs).toHaveLength(0);
@@ -537,14 +537,14 @@ describe("runtime server", () => {
 
     const created = await createRun(apiUrl, model.baseUrl, { benchmark: "bbeh-mini" });
     await vi.waitFor(() => expect(hangingResponses).toHaveLength(1));
-    await fetch(`${apiUrl}/api/humaneval/runs/${created.id}/cancel`, { method: "POST" });
+    await fetch(`${apiUrl}/api/runs/${created.id}/cancel`, { method: "POST" });
     await waitForStatus(apiUrl, created.id, ["cancelled"]);
 
     app.runs.get(created.id).benchmarkDataRevision = null;
-    const historicalRun = await fetch(`${apiUrl}/api/humaneval/runs/${created.id}`).then((response) => response.json());
+    const historicalRun = await fetch(`${apiUrl}/api/runs/${created.id}`).then((response) => response.json());
     expect(historicalRun.status).toBe("cancelled");
 
-    const resumeResponse = await fetch(`${apiUrl}/api/humaneval/runs/${created.id}/resume`, { method: "POST" });
+    const resumeResponse = await fetch(`${apiUrl}/api/runs/${created.id}/resume`, { method: "POST" });
     expect(resumeResponse.status).toBe(500);
     await expect(resumeResponse.json()).resolves.toEqual({
       error: `Run uses benchmark data revision "unversioned", but the current revision is "${bbehDataRevision}". Start a new run instead.`
@@ -566,7 +566,7 @@ describe("runtime server", () => {
     });
 
     const second = await startRuntime(rootDir);
-    const reloaded = await fetch(`${second.apiUrl}/api/humaneval/runs/${created.id}`).then((response) => response.json());
+    const reloaded = await fetch(`${second.apiUrl}/api/runs/${created.id}`).then((response) => response.json());
     expect(reloaded).toMatchObject({
       id: created.id,
       status: "completed",

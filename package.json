@@ -1,28 +1,30 @@
 {
-  "name": "humaneval-runner",
+  "name": "llm-eval-workbench",
   "version": "0.1.0",
-  "description": "A local HumanEval benchmark workbench for OpenAI-compatible chat completion endpoints.",
+  "description": "A local LLM evaluation workbench for OpenAI-compatible chat completion endpoints, with built-in benchmarks and optional pluggable benchmark packs.",
   "keywords": [
-    "humaneval",
     "llm-evaluation",
     "benchmark",
+    "eval",
+    "humaneval",
+    "bbeh",
     "openai-compatible",
     "react",
     "vite"
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Maxim-Mazurok/humaneval-runner.git"
+    "url": "git+https://github.com/Maxim-Mazurok/llm-eval-workbench.git"
   },
   "bugs": {
-    "url": "https://github.com/Maxim-Mazurok/humaneval-runner/issues"
+    "url": "https://github.com/Maxim-Mazurok/llm-eval-workbench/issues"
   },
-  "homepage": "https://github.com/Maxim-Mazurok/humaneval-runner#readme",
+  "homepage": "https://github.com/Maxim-Mazurok/llm-eval-workbench#readme",
   "type": "module",
   "scripts": {
     "dev": "concurrently --kill-others-on-fail --names frontend,backend --prefix-colors cyan,green \"npm run dev:frontend\" \"npm run dev:bench\"",
     "dev:frontend": "node scripts/start-frontend.mjs",
-    "dev:bench": "node scripts/humaneval-server.mjs",
+    "dev:bench": "node scripts/eval-server.mjs",
     "migrate:output-extraction": "node scripts/update-saved-results.mjs --apply",
     "migrate:loop-detection": "node scripts/migrate-loop-detection.mjs",
     "reanalyze:output-extraction": "node scripts/reprocess-saved-results.mjs",

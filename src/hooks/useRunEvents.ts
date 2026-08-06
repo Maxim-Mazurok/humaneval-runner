@@ -45,7 +45,7 @@ export function useRunEvents({
 
   function connectEvents(runId: string) {
     if (sourcesRef.current.has(runId)) return;
-    const source = new EventSource(`${BENCH_API}/api/humaneval/runs/${runId}/events`);
+    const source = new EventSource(`${BENCH_API}/api/runs/${runId}/events`);
     sourcesRef.current.set(runId, source);
     const handle = (message: MessageEvent) => {
       const messageBytes = textByteLength(String(message.data));
@@ -101,7 +101,7 @@ export function useRunEvents({
   }
 
   function refreshSelectedRun(runId: string) {
-    fetch(`${BENCH_API}/api/humaneval/runs/${runId}`)
+    fetch(`${BENCH_API}/api/runs/${runId}`)
       .then(async (response) => {
         const json = await response.json();
         if (response.ok) {

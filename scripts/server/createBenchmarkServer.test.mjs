@@ -24,7 +24,7 @@ async function listen(server) {
 
 describe("createBenchmarkServer", () => {
   it("runs a deterministic benchmark through HTTP and persists artifacts", async () => {
-    const runsDir = await fs.mkdtemp(join(tmpdir(), "humaneval-runs-"));
+    const runsDir = await fs.mkdtemp(join(tmpdir(), "eval-runs-"));
     tempDirs.push(runsDir);
     const modelFetch = vi.fn(async () => new Response([
       "data: {\"choices\":[{\"delta\":{\"reasoning\":\"```python\\ndef leaked_from_thinking(x):\\n    return 0\\n```\"}}]}",
@@ -49,7 +49,7 @@ describe("createBenchmarkServer", () => {
     });
     const baseUrl = await listen(server);
 
-    const created = await fetch(`${baseUrl}/api/humaneval/runs`, {
+    const created = await fetch(`${baseUrl}/api/runs`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
@@ -62,11 +62,11 @@ describe("createBenchmarkServer", () => {
     }).then((response) => response.json());
 
     await vi.waitFor(async () => {
-      const detail = await fetch(`${baseUrl}/api/humaneval/runs/${created.id}`).then((response) => response.json());
+      const detail = await fetch(`${baseUrl}/api/runs/${created.id}`).then((response) => response.json());
       expect(detail.status).toBe("completed");
     });
 
-    const detail = await fetch(`${baseUrl}/api/humaneval/runs/${created.id}`).then((response) => response.json());
+    const detail = await fetch(`${baseUrl}/api/runs/${created.id}`).then((response) => response.json());
     expect(detail.results[0]).toMatchObject({
       taskId: "HumanEval/0",
       passed: true,

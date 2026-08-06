@@ -61,13 +61,13 @@ test("notifies when a benchmark run completes", async ({ page }) => {
     Object.defineProperty(window, "EventSource", { configurable: true, value: FakeEventSource });
   });
 
-  await page.route("**/api/humaneval/runs**", async (route, request) => {
+  await page.route("**/api/runs**", async (route, request) => {
     const url = request.url();
-    if (request.method() === "POST" && url.endsWith("/api/humaneval/runs")) {
+    if (request.method() === "POST" && url.endsWith("/api/runs")) {
       await route.fulfill({ json: queuedRun, status: 201 });
       return;
     }
-    if (request.method() === "GET" && url.endsWith("/api/humaneval/runs")) {
+    if (request.method() === "GET" && url.endsWith("/api/runs")) {
       await route.fulfill({ json: { runs: [] } });
       return;
     }
@@ -153,8 +153,8 @@ test("highlights every detected loop cycle in the matching output channel", asyn
     }]
   };
 
-  await page.route("**/api/humaneval/runs**", async (route, request) => {
-    if (request.url().endsWith("/api/humaneval/runs")) {
+  await page.route("**/api/runs**", async (route, request) => {
+    if (request.url().endsWith("/api/runs")) {
       await route.fulfill({ json: { runs: [loopingRun] } });
       return;
     }

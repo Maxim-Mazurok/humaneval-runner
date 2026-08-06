@@ -1,4 +1,4 @@
-export const PERFORMANCE_DEBUG_STORAGE_KEY = "humaneval.performance.debug";
+export const PERFORMANCE_DEBUG_STORAGE_KEY = "llmEval.performance.debug";
 
 type SelectedRunFetchMeasurement = {
   runId: string;
@@ -59,7 +59,7 @@ export type BrowserPerformanceMetrics = {
 
 declare global {
   interface Window {
-    humanEvalPerformanceMetrics?: BrowserPerformanceMetrics;
+    llmEvalPerformanceMetrics?: BrowserPerformanceMetrics;
   }
 }
 
@@ -84,10 +84,10 @@ export function textByteLength(text: string) {
 
 export function initializeBrowserPerformanceMetrics(enabled: boolean, browserWindow: Window = window) {
   if (!enabled) {
-    delete browserWindow.humanEvalPerformanceMetrics;
+    delete browserWindow.llmEvalPerformanceMetrics;
     return null;
   }
-  const existingMetrics = browserWindow.humanEvalPerformanceMetrics;
+  const existingMetrics = browserWindow.llmEvalPerformanceMetrics;
   if (existingMetrics) return existingMetrics;
   const now = new Date().toISOString();
   const metrics: BrowserPerformanceMetrics = {
@@ -107,12 +107,12 @@ export function initializeBrowserPerformanceMetrics(enabled: boolean, browserWin
     state: null,
     taskResultsRender: null
   };
-  browserWindow.humanEvalPerformanceMetrics = metrics;
+  browserWindow.llmEvalPerformanceMetrics = metrics;
   return metrics;
 }
 
 export function recordSelectedRunFetchMeasurement(measurement: SelectedRunFetchMeasurement) {
-  const metrics = window.humanEvalPerformanceMetrics;
+  const metrics = window.llmEvalPerformanceMetrics;
   if (!metrics) return;
   metrics.selectedRunFetches = [...metrics.selectedRunFetches, measurement].slice(-maxSelectedRunFetchMeasurements);
   metrics.updatedAt = new Date().toISOString();
@@ -133,7 +133,7 @@ export function recordEventSourceMeasurement({
   tokenTextBytes?: number;
   tokenGapMilliseconds?: number | null;
 }) {
-  const metrics = window.humanEvalPerformanceMetrics;
+  const metrics = window.llmEvalPerformanceMetrics;
   if (!metrics) return;
   metrics.eventSource.runId = runId;
   metrics.eventSource.totalEventCount += 1;
@@ -161,14 +161,14 @@ export function recordEventSourceMeasurement({
 }
 
 export function recordStateMeasurement(measurement: StateMeasurement) {
-  const metrics = window.humanEvalPerformanceMetrics;
+  const metrics = window.llmEvalPerformanceMetrics;
   if (!metrics) return;
   metrics.state = measurement;
   metrics.updatedAt = new Date().toISOString();
 }
 
 export function recordTaskResultsRenderMeasurement(measurement: TaskResultsRenderMeasurement) {
-  const metrics = window.humanEvalPerformanceMetrics;
+  const metrics = window.llmEvalPerformanceMetrics;
   if (!metrics) return;
   metrics.taskResultsRender = measurement;
   metrics.updatedAt = new Date().toISOString();

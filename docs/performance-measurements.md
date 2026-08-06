@@ -28,7 +28,7 @@ then make the smallest targeted fix.
 Start the benchmark server with server-side performance logs enabled:
 
 ```bash
-HUMANEVAL_PERFORMANCE_LOG=1 npm run dev:bench
+LLM_EVAL_PERFORMANCE_LOG=1 npm run dev:bench
 ```
 
 Start the UI normally:
@@ -46,15 +46,15 @@ http://localhost:5173?debug=performance
 The browser toggle persists in local storage under:
 
 ```text
-humaneval.performance.debug
+llmEval.performance.debug
 ```
 
 To disable it, remove that key from local storage or run this in the browser
 console:
 
 ```js
-localStorage.removeItem("humaneval.performance.debug");
-delete window.humanEvalPerformanceMetrics;
+localStorage.removeItem("llmEval.performance.debug");
+delete window.llmEvalPerformanceMetrics;
 ```
 
 ## Browser Metrics
@@ -62,7 +62,7 @@ delete window.humanEvalPerformanceMetrics;
 When enabled, browser metrics are exposed on:
 
 ```js
-window.humanEvalPerformanceMetrics
+window.llmEvalPerformanceMetrics
 ```
 
 The object is debug-only. It is deleted in normal mode.
@@ -70,7 +70,7 @@ The object is debug-only. It is deleted in normal mode.
 ### Selected Run Fetches
 
 `selectedRunFetches` keeps recent measurements for
-`GET /api/humaneval/runs/{id}`.
+`GET /api/runs/{id}`.
 
 Each entry includes:
 
@@ -142,7 +142,7 @@ expensive render work.
 
 ## Server Logs
 
-When `HUMANEVAL_PERFORMANCE_LOG=1` is set, the benchmark server writes
+When `LLM_EVAL_PERFORMANCE_LOG=1` is set, the benchmark server writes
 structured one-line JSON logs prefixed with `[PERF]`.
 
 Example shape:

@@ -61,8 +61,8 @@ function byteLength(text) {
 
 export function createRuntimeServer({
   rootDir = defaultRootDir,
-  port = Number(process.env.HUMANEVAL_PORT || 8787),
-  performanceLogEnabled = process.env.HUMANEVAL_PERFORMANCE_LOG === "1",
+  port = Number(process.env.LLM_EVAL_PORT || 8787),
+  performanceLogEnabled = process.env.LLM_EVAL_PERFORMANCE_LOG === "1",
   fetchImplementation = fetch,
   maxReplayEvents = 5000
 } = {}) {
@@ -1033,7 +1033,7 @@ export function createRuntimeServer({
           });
         }
       }
-      const problemsMatch = url.pathname === "/api/humaneval/problems"
+      const problemsMatch = url.pathname === "/api/problems"
         ? ["", "humaneval"]
         : url.pathname.match(/^\/api\/benchmarks\/([^/]+)\/problems$/);
       if (req.method === "GET" && problemsMatch) {
@@ -1045,18 +1045,18 @@ export function createRuntimeServer({
           problems: problems.map((problem) => benchmark.problemSummary(problem))
         });
       }
-      if (req.method === "GET" && url.pathname === "/api/humaneval/runs") {
+      if (req.method === "GET" && url.pathname === "/api/runs") {
         const summaries = [...runs.values()]
           .map((run) => runSummary(run, { includeResults: false }))
           .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
         return sendJson(res, 200, { runs: summaries }, { endpoint: "list-runs", runCount: summaries.length });
       }
-      if (req.method === "POST" && url.pathname === "/api/humaneval/runs") {
+      if (req.method === "POST" && url.pathname === "/api/runs") {
         const body = await readJsonBody(req);
         const run = await createRun(body);
         return sendJson(res, 201, runSummary(run), { endpoint: "create-run", runId: run.id, resultCount: run.results.length });
       }
-      const runMatch = url.pathname.match(/^\/api\/humaneval\/runs\/([^/]+)(?:\/(events|cancel|resume))?$/);
+      const runMatch = url.pathname.match(/^\/api\/runs\/([^/]+)(?:\/(events|cancel|resume))?$/);
       if (runMatch) {
         const run = runs.get(runMatch[1]);
         if (!run) return sendJson(res, 404, { error: "Run not found" });
@@ -1132,7 +1132,7 @@ export async function startRuntimeServer(options = {}) {
   const app = createRuntimeServer(options);
   await app.loadPersistedRuns();
   await new Promise((resolve) => app.server.listen(app.port, "0.0.0.0", resolve));
-  console.log(`HumanEval benchmark server listening on http://localhost:${app.port}`);
+  console.log(`Eval benchmark server listening on http://localhost:${app.port}`);
   console.log(`Benchmark artifacts are written to ${app.runsDir}`);
   return app;
 }

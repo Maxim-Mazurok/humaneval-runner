@@ -239,7 +239,7 @@ export function useBenchmarkController() {
   }
 
   async function loadRuns(selectLatest = false) {
-    const response = await fetch(`${BENCH_API}/api/humaneval/runs`);
+    const response = await fetch(`${BENCH_API}/api/runs`);
     const json = await response.json();
     if (!response.ok) throw new Error(json.error || "Failed to load runs");
     const nextRuns = json.runs as BenchRun[];
@@ -274,7 +274,7 @@ export function useBenchmarkController() {
       return;
     }
     const startedAt = performance.now();
-    fetch(`${BENCH_API}/api/humaneval/runs/${selectedRunId}`)
+    fetch(`${BENCH_API}/api/runs/${selectedRunId}`)
       .then(async (response) => {
         const json = await response.json();
         if (!response.ok) throw new Error(json.error || "Failed to load run");
@@ -308,7 +308,7 @@ export function useBenchmarkController() {
   async function startRun() {
     setError(null);
     try {
-      const response = await fetch(`${BENCH_API}/api/humaneval/runs`, {
+      const response = await fetch(`${BENCH_API}/api/runs`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
@@ -356,7 +356,7 @@ export function useBenchmarkController() {
 
   async function cancelRun() {
     if (!selectedRun || !statusIsLive(selectedRun.status)) return;
-    await fetch(`${BENCH_API}/api/humaneval/runs/${selectedRun.id}/cancel`, { method: "POST" });
+    await fetch(`${BENCH_API}/api/runs/${selectedRun.id}/cancel`, { method: "POST" });
     await loadRuns();
   }
 
@@ -364,7 +364,7 @@ export function useBenchmarkController() {
     if (!selectedRun || !runCanResume(selectedRun)) return;
     setError(null);
     try {
-      const response = await fetch(`${BENCH_API}/api/humaneval/runs/${selectedRun.id}/resume`, { method: "POST" });
+      const response = await fetch(`${BENCH_API}/api/runs/${selectedRun.id}/resume`, { method: "POST" });
       const json = await response.json();
       if (!response.ok) throw new Error(json.error || "Failed to resume run");
       closeRunEvents(json.id);
@@ -388,7 +388,7 @@ export function useBenchmarkController() {
     if (!window.confirm(`Delete benchmark run?\n\n${label}\n\nThis removes its saved artifacts from disk.`)) return;
     setError(null);
     try {
-      const response = await fetch(`${BENCH_API}/api/humaneval/runs/${run.id}`, { method: "DELETE" });
+      const response = await fetch(`${BENCH_API}/api/runs/${run.id}`, { method: "DELETE" });
       const json = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(json.error || "Failed to delete run");
       closeRunEvents(run.id);

@@ -70,11 +70,11 @@ describe("notifications", () => {
     expect(notificationsEnabledForRun("run-1", readDisabledRunNotificationIds(win))).toBe(true);
 
     writeRunNotificationPreference("run-1", false, win);
-    expect(storage.get("humaneval.notify.disabledRuns")).toBe("[\"run-1\"]");
+    expect(storage.get("llmEval.notify.disabledRuns")).toBe("[\"run-1\"]");
     expect(notificationsEnabledForRun("run-1", readDisabledRunNotificationIds(win))).toBe(false);
 
     writeRunNotificationPreference("run-1", true, win);
-    expect(storage.get("humaneval.notify.disabledRuns")).toBe("[]");
+    expect(storage.get("llmEval.notify.disabledRuns")).toBe("[]");
     expect(notificationsEnabledForRun("run-1", readDisabledRunNotificationIds(win))).toBe(true);
   });
 

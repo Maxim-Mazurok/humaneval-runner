@@ -1,9 +1,9 @@
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
-const port = Number(process.env.HUMANEVAL_PORT || 8787);
-const frontendPort = Number(process.env.HUMANEVAL_FRONTEND_PORT || 5173);
-const endpointUrl = `http://127.0.0.1:${port}/api/humaneval/runs`;
+const port = Number(process.env.LLM_EVAL_PORT || 8787);
+const frontendPort = Number(process.env.LLM_EVAL_FRONTEND_PORT || 5173);
+const endpointUrl = `http://127.0.0.1:${port}/api/runs`;
 const retryDelayMilliseconds = 100;
 const viteCommand = fileURLToPath(new URL("../node_modules/vite/bin/vite.js", import.meta.url));
 

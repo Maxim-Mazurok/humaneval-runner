@@ -70,7 +70,7 @@ export function createRuntimeTestHarness() {
   }
 
   async function createRun(apiUrl, modelBaseUrl, overrides = {}) {
-    const response = await fetch(`${apiUrl}/api/humaneval/runs`, {
+    const response = await fetch(`${apiUrl}/api/runs`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
@@ -89,7 +89,7 @@ export function createRuntimeTestHarness() {
   async function waitForStatus(apiUrl, runId, statuses, timeout = 20_000) {
     const deadline = Date.now() + timeout;
     for (;;) {
-      const detail = await fetch(`${apiUrl}/api/humaneval/runs/${runId}`)
+      const detail = await fetch(`${apiUrl}/api/runs/${runId}`)
         .then((response) => response.json());
       if (statuses.includes(detail.status)) return detail;
       if (Date.now() > deadline) {
