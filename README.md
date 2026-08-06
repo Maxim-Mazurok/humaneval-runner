@@ -10,6 +10,9 @@ A local web workbench for running LLM benchmarks against any OpenAI-compatible
   reasoning tasks, with corrected and official-data variants scored by a
   faithful port of the official `evaluate.py` fuzzy answer matching.
 
+Additional benchmarks can be plugged in as optional **benchmark packs**
+installed under `packs/` — see [`packs/README.md`](packs/README.md).
+
 The core workflow is simple: pick a benchmark, point the app at a model
 endpoint, edit the system prompt or user prompt template, start a subset or
 full run, and watch live pass/fail results stream in as each task completes.
@@ -25,6 +28,8 @@ Each run uses exactly one benchmark.
   extraction.
 - OpenAI-compatible streaming chat completions support.
 - Editable system prompt and per-benchmark prompt template.
+- Per-run thinking toggle, thinking budget, and max output tokens sent to the
+  endpoint, so OMLX model settings do not need editing between runs.
 - Full runs or targeted task lists such as `0, 1, 2` or `10-25`.
 - Configurable pass count for rerunning the selected benchmark set multiple
   times in pass-major order.
@@ -92,6 +97,56 @@ benchmark server.
 See [docs/performance-measurements.md](docs/performance-measurements.md) for the
 measurement workflow, available counters, server log fields, and the intended
 evidence-first optimization process.
+
+## Benchmark packs
+
+Benchmarks beyond the built-ins ship as optional **benchmark packs** —
+self-contained directories under `packs/` that the workbench discovers at
+startup. A pack can live in its own repository (added as a git submodule or
+cloned in place), which keeps datasets, prompts and scoring rules that do not
+belong in this repository out of it. With no packs installed the workbench
+runs the built-in benchmarks alone.
+
+See [`packs/README.md`](packs/README.md) for the pack contract.
+
+### Vision benchmarks
+
+A benchmark may declare that it attaches images to every call. The workbench
+then sends the problem's photographs as `image_url` parts alongside the prompt
+text, and each task's "Prompt sent to model" panel renders the attached images
+above the prompt — results and event logs persist only file names, never image
+bytes. The images themselves are streamed from the benchmark's own directory
+through `GET /api/benchmark-assets/<benchmarkId>/<file>`, which a benchmark
+opts into by implementing `resolveAssetPath(file)`.
+
+**Vision capability detection**: OpenAI-compatible `/v1/models` exposes no
+vision flag, and oMLX does NOT reject image parts sent to a text-only model —
+it silently drops them and the model answers from text alone, which would
+produce garbage scores that look like a completed run. The workbench closes
+this hole with oMLX's admin API (`<origin>/admin/api/models`,
+`model_type: "vlm" | "llm" | ...`):
+
+- the server **refuses to start or resume** any image-attaching benchmark
+  when the chosen model's `model_type` is known and not `"vlm"`, and
+- the model combobox tags vision-capable models with a green `vision` badge
+  and warns inline when a vision benchmark is paired with a text-only model.
+
+When the admin API is unreachable (non-oMLX endpoints), capability is
+unknown and the run is allowed — verify the model can see images yourself.
+
+The Model field is a combobox: suggestions come from the endpoint's
+`/v1/models` via the benchmark server's `/api/models` proxy, refreshed as the
+Base URL changes; free text still works when the endpoint is unreachable.
+
+### Graded scoring
+
+HumanEval and BBEH are binary: a task passes or fails, and the headline number
+is the pass rate. A benchmark may instead declare itself **graded**, in which
+case each task earns a score in `[0, 1]` and the headline number is the **mean
+score**. The per-assertion ledger shows each component score, and a task's
+red/amber/green status keys on answer quality alone — a wrong answer that
+earns partial score crumbs still reads as a red fail. Graded benchmarks define
+their own scoring rules; see the owning pack's documentation.
 
 ## Running Benchmarks
 
@@ -173,6 +228,17 @@ start and finish, so stopped or interrupted periods are excluded. New results
 include generation and test evaluation time; older saved results use their
 recorded generation time. Finish-time estimates apply configured parallelism,
 while task-time totals remain the sum of all attempt durations.
+
+`Thinking`, `Thinking budget`, and `Max output tokens` are sent on every
+chat-completions request, so reasoning behaviour is configured per run instead
+of through the OMLX model settings UI. `Thinking` sends
+`chat_template_kwargs.enable_thinking`, `Thinking budget` sends OMLX's
+`thinking_budget` (the maximum reasoning tokens before thinking is forcibly
+ended), and `max_tokens` is sent as the thinking budget plus the max output
+tokens, because OMLX counts reasoning tokens against `max_tokens`. Turning
+`Thinking` off sends `enable_thinking: false` with a `thinking_budget` of `0`,
+so `max_tokens` equals `Max output tokens`. Properties in `Extra request body`
+are merged last and therefore override any of these.
 
 The `Extra request body` field accepts a JSON object and is merged into the
 chat completion request. For example:

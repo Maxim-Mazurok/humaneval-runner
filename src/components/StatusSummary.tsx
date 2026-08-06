@@ -1,5 +1,5 @@
-import { benchmarkOption, runBenchmarkId, type BenchRun } from "../domain/benchmark";
-import { pct, runTotal } from "../domain/runs";
+import { benchmarkOption, runBenchmarkId, runBenchmarkScoring, type BenchRun } from "../domain/benchmark";
+import { pct, runMeanScore, runTotal } from "../domain/runs";
 
 export function StatusSummary({
   selectedRun,
@@ -23,8 +23,21 @@ export function StatusSummary({
           ) : null}
         </div>
         <div className="bench-score">
-          <strong>{selectedRun ? pct(selectedRun.liveScore) : "0%"}</strong>
-          <span>{selectedRun ? `${selectedRun.passed}/${selectedRun.completed || 0} passing live` : "pass@1 live score"}</span>
+          {runBenchmarkScoring(selectedRun) === "graded" ? (
+            <>
+              <strong>{selectedRun ? pct(runMeanScore(selectedRun)) : "0%"}</strong>
+              <span>
+                {selectedRun
+                  ? `mean score live · ${selectedRun.passed}/${selectedRun.completed || 0} exact`
+                  : "mean score live"}
+              </span>
+            </>
+          ) : (
+            <>
+              <strong>{selectedRun ? pct(selectedRun.liveScore) : "0%"}</strong>
+              <span>{selectedRun ? `${selectedRun.passed}/${selectedRun.completed || 0} passing live` : "pass@1 live score"}</span>
+            </>
+          )}
           <small>{selectedRun ? `est. range ${pct(selectedScoreRange.worst)}-${pct(selectedScoreRange.best)}` : "est. range 0%-100%"}</small>
         </div>
       </header>

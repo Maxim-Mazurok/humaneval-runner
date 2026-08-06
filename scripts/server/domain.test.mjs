@@ -48,7 +48,7 @@ function runFixture(overrides = {}) {
     selectedIndices: [0],
     parallelTasks: 1,
     passCount: 1,
-    publicConfig: { maxTokens: 2048, testNumbers: "0" },
+    publicConfig: { maxOutputTokens: 2048, testNumbers: "0" },
     results: [{
       taskId: "HumanEval/0",
       index: 0,
@@ -136,7 +136,7 @@ describe("server domain helpers", () => {
       assertionsTotal: 1,
       assertionScore: 1,
       activeTaskStartedAt: { "HumanEval/1": "2026-06-16T00:00:02.000Z" },
-      config: { baseUrl: "http://localhost:8000/v1", model: "demo-model", maxTokens: 2048 }
+      config: { baseUrl: "http://localhost:8000/v1", model: "demo-model", maxOutputTokens: 2048 }
     });
     expect(runSummary(run, { includeResults: false }).results).toEqual([]);
     expect(compact.rawOutput).toBeUndefined();
@@ -163,11 +163,13 @@ describe("server domain helpers", () => {
   it("restores runtime config from persisted public run state", () => {
     const runtimeConfig = runtimeConfigFromPersistedRun({
       timeoutSeconds: undefined,
-      maxTokens: undefined,
+      maxOutputTokens: undefined,
       config: {
         apiKey: "***",
         temperature: 0.25,
-        maxTokens: 16384,
+        maxOutputTokens: 16384,
+        thinkingEnabled: false,
+        thinkingBudget: 4096,
         timeoutSeconds: 15,
         sampleLimit: 0,
         startIndex: 4,
@@ -182,7 +184,9 @@ describe("server domain helpers", () => {
     expect(runtimeConfig).toMatchObject({
       apiKey: "",
       temperature: 0.25,
-      maxTokens: 16384,
+      maxOutputTokens: 16384,
+      thinkingEnabled: false,
+      thinkingBudget: 4096,
       timeoutSeconds: 15,
       sampleLimit: 0,
       startIndex: 4,
@@ -254,7 +258,7 @@ describe("server domain helpers", () => {
       completed: 463,
       passed: 315,
       failed: 148,
-      publicConfig: { apiKey: "***", maxTokens: 2048, testNumbers: "0" }
+      publicConfig: { apiKey: "***", maxOutputTokens: 2048, testNumbers: "0" }
     });
 
     await writeRunArtifacts(run, dir);

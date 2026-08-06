@@ -326,7 +326,9 @@ describe("bbeh benchmark modules", () => {
     expect(getBenchmark("bbeh-full").kind).toBe("qa");
     expect(() => getBenchmark("nope")).toThrow("Unknown benchmark");
     const summaries = benchmarkSummaries();
-    expect(summaries.map((summary) => summary.id)).toEqual([
+    // Built-ins come first and in this order; anything after them was
+    // contributed by an optional benchmark pack, which may not be installed.
+    expect(summaries.slice(0, 5).map((summary) => summary.id)).toEqual([
       "humaneval",
       "bbeh-mini",
       "bbeh-mini-official",

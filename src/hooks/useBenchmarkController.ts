@@ -57,10 +57,10 @@ export function useBenchmarkController() {
   const performanceMetricsEnabled = useMemo(() => performanceDebugIsEnabled(window), []);
   const form = useBenchForm();
   const {
-    benchmark, baseUrl, apiKey, model, maxTokens, timeoutSeconds, parallelTasks,
+    benchmark, baseUrl, apiKey, model, maxOutputTokens, thinkingEnabled, thinkingBudget, timeoutSeconds, parallelTasks,
     passCount, adaptiveRepetitionPenalty, repetitionPenalty, commentSignalThreshold, sampleLimit, startIndex, testNumbers,
     systemPrompt, promptTemplate, extraBody, setBenchmark, setBaseUrl, setApiKey, setModel,
-    setMaxTokens, setTimeoutSeconds, setParallelTasks, setPassCount, setAdaptiveRepetitionPenalty, setRepetitionPenalty,
+    setMaxOutputTokens, setThinkingEnabled, setThinkingBudget, setTimeoutSeconds, setParallelTasks, setPassCount, setAdaptiveRepetitionPenalty, setRepetitionPenalty,
     setCommentSignalThreshold, setSampleLimit, setStartIndex, setTestNumbers,
     setSystemPrompt, setPromptTemplate, setExtraBody, resetRunConfig, loadRunConfig
   } = form;
@@ -316,7 +316,9 @@ export function useBenchmarkController() {
           baseUrl,
           apiKey,
           model,
-          maxTokens,
+          maxOutputTokens,
+          thinkingEnabled,
+          thinkingBudget,
           timeoutSeconds,
           parallelTasks: normalizeParallelTasks(parallelTasks),
           passCount: normalizePassCount(passCount),
@@ -401,7 +403,7 @@ export function useBenchmarkController() {
     }
   }
 
-  async function copyNumbers(status: "pass" | "fail" | "error" | "loop") {
+  async function copyNumbers(status: "pass" | "partial" | "fail" | "error" | "loop") {
     const text = resultNumbers(selectedRun, status);
     await navigator.clipboard.writeText(text);
   }
@@ -416,7 +418,9 @@ export function useBenchmarkController() {
     baseUrl,
     apiKey,
     model,
-    maxTokens,
+    maxOutputTokens,
+    thinkingEnabled,
+    thinkingBudget,
     timeoutSeconds,
     parallelTasks,
     passCount,
@@ -451,7 +455,9 @@ export function useBenchmarkController() {
     setBaseUrl,
     setApiKey,
     setModel,
-    setMaxTokens,
+    setMaxOutputTokens,
+    setThinkingEnabled,
+    setThinkingBudget,
     setTimeoutSeconds,
     setParallelTasks,
     setPassCount,

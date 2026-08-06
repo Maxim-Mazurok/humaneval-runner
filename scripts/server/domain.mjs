@@ -49,8 +49,21 @@ export function compactResult(result) {
   };
 }
 
+// Clamp a benchmark-reported task score into [0, 1]; results without one
+// (binary benchmarks, legacy persisted runs) fall back to 1/0 from `passed`.
+export function normalizeTaskScore(score, passed) {
+  const numeric = Number(score);
+  if (Number.isFinite(numeric)) return Math.min(1, Math.max(0, numeric));
+  return passed ? 1 : 0;
+}
+
+export function runScoreSum(results = []) {
+  return results.reduce((sum, result) => sum + normalizeTaskScore(result.score, result.passed), 0);
+}
+
 export function runSummary(run, { includeResults = true } = {}) {
   const { completed, passed, failed } = runCountsFromResults(run.results);
+  const scoreSum = runScoreSum(run.results);
   const assertionsTotal = run.results.reduce((sum, result) => sum + (result.tests?.length || 0), 0);
   const assertionsPassed = run.results.reduce(
     (sum, result) => sum + (result.tests || []).filter((test) => test.passed).length,
@@ -72,6 +85,10 @@ export function runSummary(run, { includeResults = true } = {}) {
     failed,
     liveScore: completed ? passed / completed : 0,
     finalScore: run.total ? passed / run.total : null,
+    // Mean of per-task [0,1] scores; equals the pass rate for binary
+    // benchmarks and the graded average for scored ones.
+    meanScore: completed ? scoreSum / completed : 0,
+    finalMeanScore: run.total ? scoreSum / run.total : null,
     assertionsPassed,
     assertionsTotal,
     assertionScore: assertionsTotal ? assertionsPassed / assertionsTotal : 0,
@@ -106,7 +123,18 @@ export function runtimeConfigFromPersistedRun(persisted) {
     },
     apiKey: persistedConfig.apiKey === "***" ? "" : String(persistedConfig.apiKey || "").trim(),
     temperature: Number(persistedConfig.temperature ?? persisted.temperature ?? 0),
-    maxTokens: Number(persistedConfig.maxTokens ?? persisted.maxTokens ?? 2048),
+    // Legacy runs persisted a single `maxTokens` before the thinking-budget
+    // split; fall back to it so resuming an old run keeps its original token
+    // budget instead of silently dropping to the 2048 default.
+    maxOutputTokens: normalizeTokenCount(
+      persistedConfig.maxOutputTokens
+        ?? persisted.maxOutputTokens
+        ?? persistedConfig.maxTokens
+        ?? persisted.maxTokens,
+      2048
+    ),
+    thinkingEnabled: (persistedConfig.thinkingEnabled ?? persisted.thinkingEnabled) !== false,
+    thinkingBudget: normalizeTokenCount(persistedConfig.thinkingBudget ?? persisted.thinkingBudget, 8192),
     timeoutSeconds: Number(persistedConfig.timeoutSeconds ?? persisted.timeoutSeconds ?? 15),
     sampleLimit: Number(persistedConfig.sampleLimit ?? persisted.sampleLimit ?? 0),
     startIndex: Number(persistedConfig.startIndex ?? persisted.startIndex ?? 0),
@@ -278,6 +306,12 @@ export function parseTestNumbers(value, datasetSize, taskIdPattern = /HumanEval\
 export function normalizeTaskCount(value) {
   const parsed = Number(value ?? 0);
   if (!Number.isFinite(parsed)) return 0;
+  return Math.max(0, Math.floor(parsed));
+}
+
+export function normalizeTokenCount(value, fallback) {
+  const parsed = Number(value ?? fallback);
+  if (!Number.isFinite(parsed)) return fallback;
   return Math.max(0, Math.floor(parsed));
 }
 

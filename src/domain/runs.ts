@@ -65,13 +65,22 @@ export function completedMetricLines(run?: BenchRun | null): Array<[string, stri
   ];
 }
 
+export function runMeanScore(run?: BenchRun | null) {
+  if (!run) return 0;
+  if (typeof run.meanScore === "number") return run.meanScore;
+  return run.completed ? run.passed / run.completed : 0;
+}
+
 export function scoreRange(run?: BenchRun | null) {
   if (!run) return { worst: 0, best: 0 };
   const total = runTotal(run);
   const remaining = Math.max(total - run.completed, 0);
+  // Score earned so far (graded tasks contribute fractions); the best case
+  // assumes every remaining task scores 1, the worst assumes 0.
+  const scoreSum = runMeanScore(run) * run.completed;
   return {
-    worst: total ? run.passed / total : 0,
-    best: total ? (run.passed + remaining) / total : 0
+    worst: total ? scoreSum / total : 0,
+    best: total ? (scoreSum + remaining) / total : 0
   };
 }
 
@@ -80,9 +89,14 @@ export function progressSegments(run?: BenchRun | null) {
   const total = runTotal(run);
   const remaining = Math.max(total - run.completed, 0);
   if (!total) return { failed: 0, passed: 0, remaining: 100 };
+  // Earned vs lost credit. For binary runs the mean score IS the pass rate,
+  // so this matches the old passed/failed widths exactly; for graded runs a
+  // 0.7-scoring task fills 70% of its slice green instead of reading as a
+  // full failure while the headline says "mean score 70%".
+  const earned = runMeanScore(run) * run.completed;
   return {
-    failed: (run.failed / total) * 100,
-    passed: (run.passed / total) * 100,
+    failed: ((run.completed - earned) / total) * 100,
+    passed: (earned / total) * 100,
     remaining: (remaining / total) * 100
   };
 }
@@ -289,7 +303,10 @@ export function assertionStats(results: BenchResult[] = []) {
 }
 
 export function formatAssert(test: BenchResult["tests"][number]) {
-  const lines = [`${test.passed ? "PASS" : "FAIL"} ${test.source}`];
+  const scoreSuffix = typeof test.score === "number" ? ` (score ${pct(test.score)})` : "";
+  const confidenceSuffix =
+    typeof test.confidence === "number" ? ` (confidence ${pct(test.confidence)})` : "";
+  const lines = [`${test.passed ? "PASS" : "FAIL"} ${test.source}${scoreSuffix}${confidenceSuffix}`];
   if (!test.passed && (test.expected !== undefined || test.actual !== undefined)) {
     lines.push(`expected: ${test.expected ?? "n/a"}`);
     lines.push(`actual:   ${test.actual ?? "n/a"}`);
@@ -299,12 +316,24 @@ export function formatAssert(test: BenchResult["tests"][number]) {
   return lines.join("\n");
 }
 
-export type CompletedResultStatus = "pass" | "fail" | "error" | "loop";
+export type CompletedResultStatus = "pass" | "partial" | "fail" | "error" | "loop";
+
+export function resultScore(result: BenchResult): number {
+  const numeric = Number(result.score);
+  if (Number.isFinite(numeric)) return Math.min(1, Math.max(0, numeric));
+  return result.passed ? 1 : 0;
+}
 
 export function resultStatus(result: BenchResult): CompletedResultStatus {
   if (result.passed) return "pass";
   if (result.looping) return "loop";
-  return result.tests.length > 0 ? "fail" : "error";
+  if (result.tests.length === 0) return "error";
+  // Status keys on ANSWER quality, not the confidence-weighted composite: a
+  // wrong answer with honest low confidence earns score crumbs but must stay
+  // red, not amber. Legacy results without answerScore fall back to score.
+  const quality = Number(result.answerScore ?? result.score);
+  if (Number.isFinite(quality) && quality > 0 && quality < 1) return "partial";
+  return "fail";
 }
 
 export function failureStats(results: BenchResult[] = []) {
@@ -312,11 +341,12 @@ export function failureStats(results: BenchResult[] = []) {
     (stats, result) => {
       const status = resultStatus(result);
       if (status === "fail") stats.failedAssertions += 1;
+      if (status === "partial") stats.partial += 1;
       if (status === "error") stats.errors += 1;
       if (status === "loop") stats.looping += 1;
       return stats;
     },
-    { failedAssertions: 0, errors: 0, looping: 0 }
+    { failedAssertions: 0, partial: 0, errors: 0, looping: 0 }
   );
 }
 

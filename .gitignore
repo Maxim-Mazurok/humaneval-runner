@@ -10,6 +10,11 @@ benchmark-runs/
 .cache/
 /reports/
 
+# Optional benchmark packs live in their own repositories; only the contract
+# documentation is tracked here.
+/packs/*
+!/packs/README.md
+
 # Local browser/tooling state
 .playwright-mcp/
 playwright-report/

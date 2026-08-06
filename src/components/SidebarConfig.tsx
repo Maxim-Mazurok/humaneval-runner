@@ -16,13 +16,22 @@ import {
   type BenchRun
 } from "../domain/benchmark";
 import { normalizeParallelTasks, normalizePassCount, runCanResume, statusIsLive } from "../domain/runs";
+import { ModelCombobox } from "./ModelCombobox";
 
 export type SidebarConfigProps = {
   benchmark: BenchmarkId;
   baseUrl: string;
   apiKey: string;
   model: string;
-  maxTokens: number;
+  /** Model ids from the endpoint's /v1/models, for the combobox suggestions. */
+  availableModels: string[];
+  /** id → oMLX model_type ("vlm" = vision-capable); empty when unknown. */
+  modelTypes: Record<string, string>;
+  /** Refetches the model list; called whenever the combobox opens. */
+  onRefreshModels: () => void;
+  maxOutputTokens: number;
+  thinkingEnabled: boolean;
+  thinkingBudget: number;
   timeoutSeconds: number;
   parallelTasks: number;
   passCount: number;
@@ -44,7 +53,9 @@ export type SidebarConfigProps = {
   setBaseUrl: (value: string) => void;
   setApiKey: (value: string) => void;
   setModel: (value: string) => void;
-  setMaxTokens: (value: number) => void;
+  setMaxOutputTokens: (value: number) => void;
+  setThinkingEnabled: (value: boolean) => void;
+  setThinkingBudget: (value: number) => void;
   setTimeoutSeconds: (value: number) => void;
   setParallelTasks: (value: number) => void;
   setPassCount: (value: number) => void;
@@ -109,12 +120,45 @@ export function SidebarConfig(props: SidebarConfigProps) {
       </label>
       <label className="field">
         <span>Model</span>
-        <input value={props.model} onChange={(event) => props.setModel(event.target.value)} placeholder="provider/model-name" />
+        <ModelCombobox
+          models={props.availableModels}
+          placeholder="provider/model-name"
+          tags={Object.fromEntries(
+            props.availableModels.map((modelId) => [
+              modelId,
+              props.modelTypes[modelId] === "vlm" ? "vision" : undefined
+            ])
+          )}
+          value={props.model}
+          onChange={props.setModel}
+          onOpen={props.onRefreshModels}
+        />
+        {selectedBenchmark.attachesImages
+          && props.modelTypes[props.model.trim()] !== undefined
+          && props.modelTypes[props.model.trim()] !== "vlm" ? (
+          <small className="field-warning">
+            This model is text-only (oMLX model_type "{props.modelTypes[props.model.trim()]}") —
+            this benchmark attaches photographs, and the server will refuse the run. Pick a model
+            tagged "vision".
+          </small>
+        ) : null}
+      </label>
+      <label className="field checkbox-field">
+        <input
+          checked={props.thinkingEnabled}
+          type="checkbox"
+          onChange={(event) => props.setThinkingEnabled(event.target.checked)}
+        />
+        <span>Thinking</span>
       </label>
       <div className="bench-number-grid">
         <label className="field">
-          <span>Max tokens</span>
-          <input value={props.maxTokens} min={256} step={256} type="number" onChange={(event) => props.setMaxTokens(Number(event.target.value))} />
+          <span>Max output tokens</span>
+          <input value={props.maxOutputTokens} min={256} step={256} type="number" onChange={(event) => props.setMaxOutputTokens(Number(event.target.value))} />
+        </label>
+        <label className="field">
+          <span>Thinking budget</span>
+          <input disabled={!props.thinkingEnabled} value={props.thinkingBudget} min={0} step={256} type="number" onChange={(event) => props.setThinkingBudget(Number(event.target.value))} />
         </label>
         <label className="field">
           <span>Timeout</span>

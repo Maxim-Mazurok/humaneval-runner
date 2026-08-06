@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import type { BenchResult, BenchRun, EventEnvelope, TokenEvent } from "./benchmark";
+import {
+  type BenchResult,
+  type BenchRun,
+  type EventEnvelope,
+  type TokenEvent
+} from "./benchmark";
 import {
   analyzeThinkingComments,
   commentSignalIsFlagged,
@@ -95,6 +100,42 @@ describe("run domain helpers", () => {
     expect(resultNumbers(sample, "fail")).toBe("0");
   });
 
+  it("marks graded fractional scores as partial and uses scores in ranges", () => {
+    const partial = result({
+      index: 3,
+      passed: false,
+      score: 0.7,
+      tests: [{ source: "value within tolerance", passed: true }, { source: "range covers", passed: false }]
+    });
+    const zeroScore = result({ index: 5, passed: false, score: 0, tests: [{ source: "value within tolerance", passed: false }] });
+    expect(resultStatus(partial)).toBe("partial");
+    expect(resultStatus(zeroScore)).toBe("fail");
+    // Status keys on answer quality: a wrong answer whose composite score is
+    // non-zero only through honest low confidence stays a fail, not partial.
+    const honestWrong = result({
+      index: 7,
+      passed: false,
+      score: 0.299,
+      answerScore: 0,
+      tests: [{ source: "category matches", passed: false }]
+    });
+    expect(resultStatus(honestWrong)).toBe("fail");
+    const partialAnswer = result({
+      index: 8,
+      passed: false,
+      score: 0.52,
+      answerScore: 0.5,
+      tests: [{ source: "value within tolerance", passed: false }]
+    });
+    expect(resultStatus(partialAnswer)).toBe("partial");
+    expect(failureStats([partial, zeroScore])).toEqual({ failedAssertions: 1, partial: 1, errors: 0, looping: 0 });
+    expect(resultNumbers(run({ results: [partial, zeroScore] }), "partial")).toBe("3");
+
+    // Graded runs estimate the final range from earned score, not pass counts.
+    const gradedRun = run({ total: 4, completed: 2, passed: 0, failed: 2, meanScore: 0.5, results: [] });
+    expect(scoreRange(gradedRun)).toEqual({ worst: 0.25, best: 0.75 });
+  });
+
   it("separates assertion failures from attempts that never ran an assertion", () => {
     const assertionFailure = result({ index: 4, passed: false, tests: [{ source: "assert a", passed: false }] });
     const harnessError = result({ index: 9, passed: false, tests: [], traceback: "SyntaxError" });
@@ -106,8 +147,8 @@ describe("run domain helpers", () => {
     expect(resultStatus(harnessError)).toBe("error");
     expect(resultStatus(looping)).toBe("loop");
     expect(resultStatus(passingLoop)).toBe("pass");
-    expect(failureStats([passingLoop])).toEqual({ failedAssertions: 0, errors: 0, looping: 0 });
-    expect(failureStats(sample.results)).toEqual({ failedAssertions: 1, errors: 1, looping: 1 });
+    expect(failureStats([passingLoop])).toEqual({ failedAssertions: 0, partial: 0, errors: 0, looping: 0 });
+    expect(failureStats(sample.results)).toEqual({ failedAssertions: 1, partial: 0, errors: 1, looping: 1 });
     expect(resultNumbers(sample, "fail")).toBe("4");
     expect(resultNumbers(sample, "error")).toBe("9");
     expect(resultNumbers(sample, "loop")).toBe("12");

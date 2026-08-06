@@ -1,5 +1,5 @@
 import { Bell, BellOff, ClipboardCopy } from "lucide-react";
-import { runBenchmarkKind, type BenchRun } from "../domain/benchmark";
+import { runBenchmarkKind, runBenchmarkScoring, type BenchRun } from "../domain/benchmark";
 import type { CurrentPassTiming } from "../domain/passTiming";
 import {
   assertionStats,
@@ -7,6 +7,7 @@ import {
   failureStats,
   normalizeCommentSignalThreshold,
   pct,
+  runMeanScore,
   statusIsInProgress
 } from "../domain/runs";
 import { Metric, MetricLines, type MetricLine } from "./Metric";
@@ -32,16 +33,26 @@ export function MetricsPanel({
   selectedSpeedStats: { averageTask: string; elapsed: string };
   selectedRunNotificationsEnabled: boolean;
   setCommentSignalThreshold: (value: number) => void;
-  onCopyNumbers: (status: "pass" | "fail" | "error" | "loop") => void;
+  onCopyNumbers: (status: "pass" | "partial" | "fail" | "error" | "loop") => void;
   onCopyThinkingNumbers: (flagged: boolean) => void;
   onToggleNotifications: (run: BenchRun) => void;
 }) {
   const failures = failureStats(selectedRun?.results);
   const isCodeBenchmark = runBenchmarkKind(selectedRun) === "code";
+  const isGradedBenchmark = runBenchmarkScoring(selectedRun) === "graded";
   const checksLabel = isCodeBenchmark ? "Assertions" : "Answer checks";
+  const failedLines: Array<[string, string]> = [
+    [checksLabel, String(failures.failedAssertions)],
+    ...(isGradedBenchmark ? ([["Partial", String(failures.partial)]] as Array<[string, string]>) : []),
+    ["Errors", String(failures.errors)],
+    ["Looping", String(failures.looping)]
+  ];
   return (
     <section className="bench-metrics">
       <Metric label="Completed" value={<MetricLines lines={completedMetricLines(selectedRun)} />} />
+      {isGradedBenchmark ? (
+        <Metric label="Mean score" value={selectedRun ? pct(runMeanScore(selectedRun)) : "0%"} tone="passed" />
+      ) : null}
       <Metric label="Passed" value={String(selectedRun?.passed ?? 0)} tone="passed">
         <button className="metric-action" type="button" onClick={() => onCopyNumbers("pass")} disabled={!selectedRun?.results.length}>
           <ClipboardCopy size={14} /> Copy passed
@@ -49,13 +60,18 @@ export function MetricsPanel({
       </Metric>
       <Metric
         label="Failed"
-        value={<MetricLines lines={[[checksLabel, String(failures.failedAssertions)], ["Errors", String(failures.errors)], ["Looping", String(failures.looping)]]} />}
+        value={<MetricLines lines={failedLines} />}
         tone="failed"
       >
         <div className="metric-actions">
           <button className="metric-action" type="button" onClick={() => onCopyNumbers("fail")} disabled={!failures.failedAssertions}>
             <ClipboardCopy size={14} /> {isCodeBenchmark ? "Copy assertion failures" : "Copy wrong answers"}
           </button>
+          {isGradedBenchmark ? (
+            <button className="metric-action" type="button" onClick={() => onCopyNumbers("partial")} disabled={!failures.partial}>
+              <ClipboardCopy size={14} /> Copy partial
+            </button>
+          ) : null}
           <button className="metric-action" type="button" onClick={() => onCopyNumbers("error")} disabled={!failures.errors}>
             <ClipboardCopy size={14} /> Copy runtime errors
           </button>

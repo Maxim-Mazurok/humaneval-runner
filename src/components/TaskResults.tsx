@@ -1,5 +1,5 @@
 import { AlertTriangle, ChevronDown, ChevronRight } from "lucide-react";
-import { runBenchmarkKind, type BenchResult, type BenchRun, type TaskGroup, type TaskPromptInfo, type TokenEvent } from "../domain/benchmark";
+import { BENCH_API, runBenchmarkKind, runBenchmarkScoring, type BenchResult, type BenchRun, type BenchTaskImage, type TaskGroup, type TaskPromptInfo, type TokenEvent } from "../domain/benchmark";
 import {
   analyzeThinkingComments,
   commentSignalIsFlagged,
@@ -12,7 +12,7 @@ import {
 } from "../domain/passes";
 import { buildInstructionPromptFallback } from "../domain/prompts";
 import { recordTaskResultsRenderMeasurement, textByteLength } from "../domain/performanceMetrics";
-import { formatAssert, formatDuration, pct, runPassCount } from "../domain/runs";
+import { formatAssert, formatDuration, pct, resultScore, runPassCount } from "../domain/runs";
 import { orderedChannelOutput } from "../domain/tasks";
 
 function primaryResultStatus(
@@ -21,6 +21,35 @@ function primaryResultStatus(
 ) {
   if (status !== "loop") return status;
   return result?.tests.length ? "fail" : "error";
+}
+
+/**
+ * The photographs that were attached to the model call, loaded from the bench
+ * server (only file names are persisted in results and events). Rendered at
+ * the top of the "Prompt sent to model" panel so what the model saw is
+ * visible next to what it read.
+ */
+function PromptImages({ images }: { images?: BenchTaskImage[] }) {
+  if (!images?.length) return null;
+  return (
+    <div className="prompt-images">
+      {images.map((image, imageIndex) => (
+        <figure key={image.file}>
+          <a href={`${BENCH_API}${image.url}`} rel="noreferrer" target="_blank">
+            <img
+              alt={`Photograph ${imageIndex + 1} sent to the model`}
+              loading="lazy"
+              src={`${BENCH_API}${image.url}`}
+            />
+          </a>
+          <figcaption>
+            Photograph {imageIndex + 1}
+            {image.postedAt ? ` · posted ${image.postedAt}` : " · posted date unknown"}
+          </figcaption>
+        </figure>
+      ))}
+    </div>
+  );
 }
 
 function LoopHighlightedText({
@@ -91,6 +120,7 @@ export function TaskResults({
   const performanceMetricsEnabled = typeof window !== "undefined" && Boolean(window.humanEvalPerformanceMetrics);
   const benchmarkKind = runBenchmarkKind(selectedRun);
   const isCodeBenchmark = benchmarkKind === "code";
+  const isGradedBenchmark = runBenchmarkScoring(selectedRun) === "graded";
   const adaptiveRepetitionPenalty = Boolean(selectedRun?.config?.adaptiveRepetitionPenalty);
   const labels = isCodeBenchmark
     ? {
@@ -178,9 +208,11 @@ export function TaskResults({
             ? "pass"
             : group.attempts.some((attempt) => attempt.status === "fail")
               ? "fail"
-              : group.attempts.some((attempt) => attempt.status === "loop")
-                ? "loop"
-                : "error";
+              : group.attempts.some((attempt) => attempt.status === "partial")
+                ? "partial"
+                : group.attempts.some((attempt) => attempt.status === "loop")
+                  ? "loop"
+                  : "error";
         const isOpen = expanded[group.taskId] ?? groupIsRunning;
         const completedPasses = group.attempts.filter((attempt) => attempt.status !== "running").length;
         const passedPasses = group.attempts.filter((attempt) => attempt.status === "pass").length;
@@ -245,6 +277,7 @@ export function TaskResults({
                   ? (row.entryPoint || group.entryPoint)
                   : (row.subtask || result?.subtask)) || (isCodeBenchmark ? "entry point pending" : "subtask pending")} · {passedPasses}/{completedPasses || 0} passes passing
                 {passTotal > 1 ? ` · ${completedPasses}/${passTotal} passes complete` : ""}
+                {result && isGradedBenchmark ? ` · score ${pct(resultScore(result))}` : ""}
                 {result ? ` · ${passRangeLabel(activePassGroup.startPass, activePassGroup.endPass, passTotal)} · ${assertsPassed}/${result.tests.length} ${labels.checks} · ${pct(assertScore)}` : ""}
                 {isRunning ? ` · ${runningDuration ?? "in progress"}` : result ? ` · ${groupedTaskDurationLabel(activePassGroup.attempts)}` : ""}
                 {displayedRepetitionPenalty !== null ? ` · penalty ${displayedRepetitionPenalty}` : ""}
@@ -297,7 +330,7 @@ export function TaskResults({
                 {result?.loopDetection ? <pre className="loop-signal">Detected {result.loopDetection.repetitions} repeated cycles in {result.loopDetection.channel} ({result.loopDetection.patternWords} words per cycle). {result.looping ? "Generation stopped early." : "Generation continued to its normal finish."}</pre> : null}
                 {thinkingInComments ? <details open><summary>Thinking in comments</summary><pre className="comment-signal">{formatCommentSignal(commentSignal, commentSignalThreshold)}</pre></details> : null}
                 {result ? <details open><summary>{labels.ledger}</summary>{result.tests.length ? result.tests.map((test, index) => <pre key={index} className={test.passed ? "assert-pass" : "assert-fail"}>{formatAssert(test)}</pre>) : <pre className={row.status === "error" ? "assert-error" : undefined}>{labels.ledgerEmpty}</pre>}</details> : null}
-                <details open><summary>Prompt sent to model</summary><pre>{instructionPrompt || "Prompt pending."}</pre></details>
+                <details open><summary>Prompt sent to model</summary><PromptImages images={result?.images ?? row.images} /><pre>{instructionPrompt || "Prompt pending."}</pre></details>
                 <details><summary>{labels.task}</summary><pre>{originalPrompt || "Task prompt pending."}</pre></details>
                 {result ? <details><summary>Thinking</summary><LoopHighlightedText channel="thinking" loopDetection={result.loopDetection} text={result.thinkingOutput || "No separate thinking stream captured."} /></details> : null}
                 {result ? <details><summary>Raw output</summary><LoopHighlightedText channel="output" loopDetection={result.loopDetection} text={result.rawOutput} /></details> : null}

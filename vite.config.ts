@@ -5,7 +5,12 @@ export default defineConfig({
   plugins: [react()],
   test: {
     environment: "jsdom",
-    include: ["src/**/*.test.{ts,tsx}", "scripts/**/*.test.mjs"],
+    include: [
+      "src/**/*.test.{ts,tsx}",
+      "scripts/**/*.test.mjs",
+      // Optional benchmark packs ship their own tests.
+      "packs/*/**/*.test.{ts,tsx,mjs}"
+    ],
     environmentOptions: {
       jsdom: {
         url: "http://127.0.0.1:4174"

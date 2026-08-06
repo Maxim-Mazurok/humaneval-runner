@@ -1,11 +1,9 @@
 // @vitest-environment node
-import { createServer } from "node:http";
 import { promises as fs } from "node:fs";
 import { join } from "node:path";
-import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { bbehDataRevision } from "./benchmarks/bbehDataCorrections.mjs";
-import { createRuntimeServer } from "./runtime.mjs";
+import { createRuntimeTestHarness } from "./runtimeTestHarness.mjs";
 
 const problems = [
   {
@@ -37,17 +35,12 @@ const goodSolutions = {
   negate: "def negate(x):\n    return -x"
 };
 
-let cleanups = [];
+const harness = createRuntimeTestHarness();
 
-afterEach(async () => {
-  await Promise.all(cleanups.map((cleanup) => cleanup().catch(() => {})));
-  cleanups = [];
-});
+afterEach(() => harness.cleanup());
 
 async function makeRootDir() {
-  const rootDir = await fs.mkdtemp(join(tmpdir(), "he-runtime-"));
-  cleanups.push(() => fs.rm(rootDir, { recursive: true, force: true }));
-  await fs.mkdir(join(rootDir, ".cache"), { recursive: true });
+  const rootDir = await harness.makeRootDir("he-runtime-");
   await fs.writeFile(
     join(rootDir, ".cache", "HumanEval.jsonl"),
     problems.map((problem) => JSON.stringify(problem)).join("\n")
@@ -111,60 +104,37 @@ function loopingThenGoodModelHandler(req, res, body) {
   res.end();
 }
 
-// Serves an OpenAI-compatible /chat/completions endpoint. `handlers` are
-// consumed one per request; the last handler repeats for later requests.
-async function startModelServer(handlers) {
-  let requestCount = 0;
-  const requests = [];
-  const server = createServer(async (req, res) => {
-    let raw = "";
-    for await (const chunk of req) raw += chunk;
-    const body = JSON.parse(raw);
-    requests.push({ url: req.url, headers: req.headers, body });
-    const handler = handlers[Math.min(requestCount, handlers.length - 1)];
-    requestCount += 1;
-    await handler(req, res, body);
-  });
-  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
-  cleanups.push(() => new Promise((resolve) => server.close(resolve)));
-  return { baseUrl: `http://127.0.0.1:${server.address().port}/v1`, requests };
-}
-
-async function startRuntime(rootDir) {
-  const app = createRuntimeServer({ rootDir, port: 0 });
-  await app.loadPersistedRuns();
-  await new Promise((resolve) => app.server.listen(0, "127.0.0.1", resolve));
-  cleanups.push(() => new Promise((resolve) => app.server.close(resolve)));
-  return { app, apiUrl: `http://127.0.0.1:${app.server.address().port}` };
-}
-
-async function createRun(apiUrl, modelBaseUrl, overrides = {}) {
-  const response = await fetch(`${apiUrl}/api/humaneval/runs`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      baseUrl: modelBaseUrl,
-      model: "test-model",
-      maxTokens: 512,
-      timeoutSeconds: 10,
-      ...overrides
-    })
-  });
-  const json = await response.json();
-  if (!response.ok) throw new Error(json.error || "createRun failed");
-  return json;
-}
-
-async function waitForStatus(apiUrl, runId, statuses, timeout = 20_000) {
-  let detail;
-  await vi.waitFor(async () => {
-    detail = await fetch(`${apiUrl}/api/humaneval/runs/${runId}`).then((response) => response.json());
-    expect(statuses).toContain(detail.status);
-  }, { timeout, interval: 50 });
-  return detail;
-}
+const { createRun, startModelServer, startRuntime, waitForStatus } = harness;
 
 describe("runtime server", () => {
+  it("proxies the endpoint's model list through /api/models", async () => {
+    const rootDir = await makeRootDir();
+    const { apiUrl } = await startRuntime(rootDir, {
+      fetchImplementation: async (url) => {
+        // The proxy fetches /v1/models and best-effort probes the oMLX admin
+        // API for model types; this endpoint has no admin API.
+        if (String(url) === "http://models.test/v1/models") {
+          return new Response(
+            JSON.stringify({ data: [{ id: "text-model", max_model_len: 4096 }, { id: "vl-model" }] })
+          );
+        }
+        return new Response("not found", { status: 404 });
+      }
+    });
+
+    const payload = await fetch(`${apiUrl}/api/models?baseUrl=http://models.test/v1/`)
+      .then((response) => response.json());
+    expect(payload).toEqual({
+      models: [
+        { id: "text-model", maxModelLen: 4096, modelType: null },
+        { id: "vl-model", maxModelLen: null, modelType: null }
+      ]
+    });
+
+    const missing = await fetch(`${apiUrl}/api/models`);
+    expect(missing.status).toBe(400);
+  });
+
   it("rejects a non-positive adaptive starting penalty", async () => {
     const rootDir = await makeRootDir();
     const { apiUrl } = await startRuntime(rootDir);
@@ -300,7 +270,6 @@ describe("runtime server", () => {
     expect(model.requests[0].headers.authorization).toBe("Bearer sk-secret");
     expect(model.requests[0].body).toMatchObject({ model: "test-model", stream: true });
     expect(model.requests[0].body).not.toHaveProperty("repetition_penalty");
-
     // API key never appears in the summary or persisted artifacts.
     expect(JSON.stringify(detail)).not.toContain("sk-secret");
 
@@ -498,7 +467,9 @@ describe("runtime server", () => {
     const { apiUrl } = await startRuntime(rootDir);
 
     const benchmarksResponse = await fetch(`${apiUrl}/api/benchmarks`).then((response) => response.json());
-    expect(benchmarksResponse.benchmarks.map((benchmark) => benchmark.id)).toEqual([
+    // Built-ins come first; anything after them arrived from an optional
+    // benchmark pack, which may not be installed.
+    expect(benchmarksResponse.benchmarks.slice(0, 5).map((benchmark) => benchmark.id)).toEqual([
       "humaneval",
       "bbeh-mini",
       "bbeh-mini-official",
@@ -585,7 +556,7 @@ describe("runtime server", () => {
     const model = await startModelServer([goodModelHandler]);
     const first = await startRuntime(rootDir);
 
-    const created = await createRun(first.apiUrl, model.baseUrl, { testNumbers: "0-1", maxTokens: 999 });
+    const created = await createRun(first.apiUrl, model.baseUrl, { testNumbers: "0-1", maxOutputTokens: 999 });
     await waitForStatus(first.apiUrl, created.id, ["completed"]);
     // Artifact writes are fire-and-forget; wait for the persisted status.
     const runDirs = await fs.readdir(join(rootDir, "benchmark-runs"));
@@ -603,8 +574,42 @@ describe("runtime server", () => {
       passed: 2,
       model: "test-model"
     });
-    expect(reloaded.config).toMatchObject({ maxTokens: 999, testNumbers: "0-1" });
+    expect(reloaded.config).toMatchObject({ maxOutputTokens: 999, testNumbers: "0-1" });
     expect(reloaded.results).toHaveLength(2);
     expect(reloaded.results[0].extractedCode).toBe(goodSolutions.add_one);
+  });
+
+  it("sends thinking configuration and a combined token budget to the model", async () => {
+    const rootDir = await makeRootDir();
+    const model = await startModelServer([goodModelHandler]);
+    const { apiUrl } = await startRuntime(rootDir);
+
+    const withThinking = await createRun(apiUrl, model.baseUrl, {
+      testNumbers: "0",
+      maxOutputTokens: 700,
+      thinkingEnabled: true,
+      thinkingBudget: 300
+    });
+    await waitForStatus(apiUrl, withThinking.id, ["completed"]);
+
+    expect(model.requests[0].body).toMatchObject({
+      max_tokens: 1000,
+      thinking_budget: 300,
+      chat_template_kwargs: { enable_thinking: true }
+    });
+
+    const withoutThinking = await createRun(apiUrl, model.baseUrl, {
+      testNumbers: "0",
+      maxOutputTokens: 700,
+      thinkingEnabled: false,
+      thinkingBudget: 300
+    });
+    await waitForStatus(apiUrl, withoutThinking.id, ["completed"]);
+
+    expect(model.requests[1].body).toMatchObject({
+      max_tokens: 700,
+      thinking_budget: 0,
+      chat_template_kwargs: { enable_thinking: false }
+    });
   });
 });

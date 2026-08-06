@@ -208,7 +208,7 @@ describe("App notifications", () => {
       config: {
         baseUrl: "http://saved.example/v1",
         model: "saved-model",
-        maxTokens: 4096,
+        maxOutputTokens: 4096,
         timeoutSeconds: 60,
         parallelTasks: 8,
         sampleLimit: 12,

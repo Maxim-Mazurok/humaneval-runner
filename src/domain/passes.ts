@@ -1,5 +1,5 @@
 import type { BenchRun, ChartPassGroup, PassTabGroup, PassVariabilityStats, TaskRow } from "./benchmark";
-import { formatMs, normalizePassCount, resultActiveDurationMilliseconds, runPassCount, runTotal } from "./runs";
+import { formatMs, normalizePassCount, resultActiveDurationMilliseconds, resultScore, runPassCount, runTotal } from "./runs";
 
 export function attemptPassNumber(value: { passNumber?: number } | Record<string, unknown> | undefined) {
   const parsed = Number(value?.passNumber ?? 1);
@@ -39,6 +39,10 @@ export function passVariabilityStats(run?: BenchRun | null): PassVariabilityStat
     });
   }
   const taskRows = new Map<string, { completed: number; passed: number }>();
+  // Graded benchmarks contribute fractional task scores to the per-pass score
+  // (binary results contribute their usual 1/0), tracked outside the row so
+  // the public PassVariabilityStats shape stays unchanged.
+  const passScoreSums = new Map<number, number>();
 
   for (const result of results) {
     const passNumber = attemptPassNumber(result);
@@ -58,7 +62,9 @@ export function passVariabilityStats(run?: BenchRun | null): PassVariabilityStat
     if (activeDurationMilliseconds > 0) {
       row.passDurationMilliseconds = (row.passDurationMilliseconds ?? 0) + activeDurationMilliseconds;
     }
-    row.score = row.completed ? row.passed / row.completed : 0;
+    const passScoreSum = (passScoreSums.get(passNumber) ?? 0) + resultScore(result);
+    passScoreSums.set(passNumber, passScoreSum);
+    row.score = row.completed ? passScoreSum / row.completed : 0;
     passRows.set(passNumber, row);
 
     const task = taskRows.get(result.taskId) ?? { completed: 0, passed: 0 };
@@ -100,14 +106,22 @@ export function passVariabilityStats(run?: BenchRun | null): PassVariabilityStat
   };
 }
 
-export function passPossibleScoreRange(row: { completed: number; passed: number }, tasksPerPass: number) {
+export function passPossibleScoreRange(
+  row: { completed: number; passed: number; score?: number },
+  tasksPerPass: number
+) {
   const total = Math.max(1, Math.floor(tasksPerPass));
   const completed = Math.min(Math.max(row.completed, 0), total);
-  const passed = Math.min(Math.max(row.passed, 0), completed);
   const remaining = total - completed;
+  // Earned score so far. row.score is the per-pass mean of task scores, so
+  // graded fractions are bracketed correctly; for binary rows it equals the
+  // pass count and the old bounds fall out unchanged.
+  const earned = typeof row.score === "number"
+    ? Math.min(Math.max(row.score, 0), 1) * completed
+    : Math.min(Math.max(row.passed, 0), completed);
   return {
-    worst: passed / total,
-    best: (passed + remaining) / total
+    worst: earned / total,
+    best: (earned + remaining) / total
   };
 }
 

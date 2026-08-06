@@ -97,6 +97,7 @@ pre {
 }
 
 .pass-pill,
+.partial-pill,
 .fail-pill,
 .error-pill,
 .loop-pill,
@@ -118,6 +119,40 @@ pre {
 .fail-pill {
   color: #8a2d18;
   background: #ffe2d7;
+}
+
+/* Graded benchmarks: a scored-but-imperfect answer, between pass and fail. */
+.partial-pill {
+  color: #7a5b12;
+  background: #fdf0c9;
+}
+
+/* Photographs attached to the model call, shown above the prompt text. */
+.prompt-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 8px 0 10px;
+}
+
+.prompt-images figure {
+  margin: 0;
+  max-width: 200px;
+}
+
+.prompt-images img {
+  display: block;
+  max-height: 180px;
+  max-width: 200px;
+  border-radius: 8px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  object-fit: contain;
+}
+
+.prompt-images figcaption {
+  margin-top: 3px;
+  font-size: 11px;
+  opacity: 0.75;
 }
 
 .error-pill {

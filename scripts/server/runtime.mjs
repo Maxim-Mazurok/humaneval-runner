@@ -12,6 +12,8 @@ import {
   normalizeParallelTasks,
   normalizePassCount,
   normalizeTaskCount,
+  normalizeTaskScore,
+  normalizeTokenCount,
   parseTestNumbers,
   persistedRunState,
   redactApiKey,
@@ -21,7 +23,7 @@ import {
   runSummary,
   syncRunCountsFromResults
 } from "./domain.mjs";
-import { benchmarkSummaries, getBenchmark } from "./benchmarks/registry.mjs";
+import { benchmarkSummaries, benchmarks, getBenchmark } from "./benchmarks/registry.mjs";
 import { fetchModelResponseWithRetry, throwIfRetryableModelOutput } from "./modelRetry.mjs";
 import {
   detectRepetitionLoop,
@@ -35,6 +37,23 @@ import {
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const defaultRootDir = join(__dirname, "../..");
 const LOOP_DETECTION_CHECK_INTERVAL_CHARACTERS = 512;
+
+// Benchmarks that ship binary assets (photographs, audio, ...) expose
+// `resolveAssetPath(file)`; the runtime serves whatever that returns and knows
+// nothing about where a pack keeps its data.
+export const BENCHMARK_ASSET_ROUTE_PREFIX = "/api/benchmark-assets/";
+
+const ASSET_CONTENT_TYPES = new Map([
+  ["jpg", "image/jpeg"],
+  ["jpeg", "image/jpeg"],
+  ["png", "image/png"],
+  ["webp", "image/webp"],
+  ["gif", "image/gif"]
+]);
+
+export function benchmarkAssetUrl(benchmarkId, file) {
+  return `${BENCHMARK_ASSET_ROUTE_PREFIX}${encodeURIComponent(benchmarkId)}/${encodeURIComponent(file)}`;
+}
 
 function byteLength(text) {
   return Buffer.byteLength(text, "utf8");
@@ -332,18 +351,61 @@ export function createRuntimeServer({
     return responseResult();
   }
 
+  // Photograph references for the UI: file names plus a server URL the
+  // frontend can load pixels from. Only names are persisted in events and
+  // results — the bytes stay on disk and go over the wire once per request.
+  function problemImageRefs(benchmark, problem) {
+    const images = Array.isArray(problem.images) ? problem.images : [];
+    if (!images.length) return undefined;
+    return images.map((image) => {
+      const file = String(image.file).split("/").pop();
+      return {
+        file,
+        postedAt: image.postedAt ?? null,
+        url: benchmarkAssetUrl(benchmark.id, file)
+      };
+    });
+  }
+
+  // Benchmarks whose problems carry images get them attached to the user
+  // message as OpenAI image_url parts. The
+  // base64 payloads go only on the wire — event logs keep the text messages
+  // plus the file names, or every prompt event would embed megabytes of jpeg.
+  async function attachProblemImages(messages, problem) {
+    const images = Array.isArray(problem.images) ? problem.images : [];
+    if (!images.length) return messages;
+    const lastIndex = messages.length - 1;
+    const parts = [{ type: "text", text: messages[lastIndex].content }];
+    for (const image of images) {
+      const bytes = await fs.readFile(image.file);
+      parts.push({
+        type: "image_url",
+        image_url: { url: `data:image/jpeg;base64,${bytes.toString("base64")}` }
+      });
+    }
+    return messages.map((message, messageIndex) => (
+      messageIndex === lastIndex ? { ...message, content: parts } : message
+    ));
+  }
+
   async function callModel(run, problem, index, context = {}) {
     const controller = new AbortController();
     run.abortControllers ??= new Set();
     run.abortControllers.add(controller);
     run.abortController = controller;
     const messages = buildPromptMessages(problem, run.systemPrompt, run.promptTemplate);
+    const wireMessages = await attachProblemImages(messages, problem);
+    // OMLX caps reasoning with `thinking_budget` but still counts those tokens
+    // against `max_tokens`, so the request budget is thinking plus output.
+    const thinkingBudget = run.thinkingEnabled ? normalizeTokenCount(run.thinkingBudget, 0) : 0;
     const body = {
       model: run.model,
-      messages,
+      messages: wireMessages,
       stream: true,
       temperature: run.temperature,
-      max_tokens: run.maxTokens,
+      max_tokens: thinkingBudget + run.maxOutputTokens,
+      thinking_budget: thinkingBudget,
+      chat_template_kwargs: { enable_thinking: run.thinkingEnabled },
       stream_options: { include_usage: true }
     };
     if (run.extraBody && Object.keys(run.extraBody).length) Object.assign(body, run.extraBody);
@@ -352,7 +414,16 @@ export function createRuntimeServer({
     }
     if (Number.isFinite(context.repetitionPenalty)) body.repetition_penalty = context.repetitionPenalty;
 
-    appendEvent(run, "prompt", { taskId: problem.task_id, index, ...context, messages, request: { ...body, messages } });
+    appendEvent(run, "prompt", {
+      taskId: problem.task_id,
+      index,
+      ...context,
+      messages,
+      ...(Array.isArray(problem.images) && problem.images.length
+        ? { imageFiles: problem.images.map((image) => image.file) }
+        : {}),
+      request: { ...body, messages }
+    });
     const started = Date.now();
     try {
       return await fetchModelResponseWithRetry({
@@ -451,6 +522,7 @@ export function createRuntimeServer({
           subtask: problem.subtask,
           prompt: problem.prompt,
           test: benchmark.problemReference(problem),
+          ...(problemImageRefs(benchmark, problem) ? { images: problemImageRefs(benchmark, problem) } : {}),
           summary: runSummary(run, { includeResults: false })
         });
         try {
@@ -468,7 +540,10 @@ export function createRuntimeServer({
               entryPoint: problem.entry_point,
               subtask: problem.subtask,
               passed: false,
+              score: 0,
+              answerScore: 0,
               modelError: error instanceof Error ? error.message : String(error),
+              ...(problemImageRefs(benchmark, problem) ? { images: problemImageRefs(benchmark, problem) } : {}),
               tests: [],
               instructionPrompt: buildPromptMessages(problem, run.systemPrompt, run.promptTemplate).map((message) => `${message.role.toUpperCase()}:\n${message.content}`).join("\n\n"),
               prompt: problem.prompt,
@@ -518,9 +593,12 @@ export function createRuntimeServer({
               entryPoint: problem.entry_point,
               subtask: problem.subtask,
               passed: false,
+              score: 0,
+              answerScore: 0,
               looping: true,
               loopDetection: generation.loopDetection,
               ...(run.adaptiveRepetitionPenalty ? { repetitionPenalty: context.repetitionPenalty } : {}),
+              ...(problemImageRefs(benchmark, problem) ? { images: problemImageRefs(benchmark, problem) } : {}),
               tests: [],
               instructionPrompt: buildPromptMessages(problem, run.systemPrompt, run.promptTemplate).map((message) => `${message.role.toUpperCase()}:\n${message.content}`).join("\n\n"),
               prompt: problem.prompt,
@@ -557,6 +635,13 @@ export function createRuntimeServer({
             entryPoint: problem.entry_point,
             subtask: problem.subtask,
             passed: Boolean(testResult.passed),
+            // Graded benchmarks return a fractional [0,1] task score; binary
+            // ones fall back to 1/0 from `passed` so summaries can always sum.
+            score: normalizeTaskScore(testResult.score, testResult.passed),
+            // Answer quality before confidence weighting; drives the
+            // pass/partial/fail status so honest-but-wrong stays red.
+            answerScore: normalizeTaskScore(testResult.answerScore ?? testResult.score, testResult.passed),
+            ...(problemImageRefs(benchmark, problem) ? { images: problemImageRefs(benchmark, problem) } : {}),
             tests: testResult.tests || [],
             expectedAnswer: testResult.expectedAnswer,
             stdout: testResult.stdout || "",
@@ -644,10 +729,54 @@ export function createRuntimeServer({
     }
   }
 
+  // Model capability lookup, oMLX-specific: the OpenAI-compatible /v1/models
+  // reply has no vision flag, but oMLX's admin API exposes model_type
+  // ("vlm" | "llm" | "embedding" | ...). Best effort — any failure returns
+  // null (capability unknown) so non-oMLX endpoints keep working.
+  async function fetchModelTypes(baseUrl) {
+    try {
+      const origin = new URL(baseUrl).origin;
+      const response = await fetchImplementation(`${origin}/admin/api/models`, {
+        signal: AbortSignal.timeout(2000)
+      });
+      if (!response.ok) return null;
+      const payload = await response.json();
+      if (!Array.isArray(payload?.models)) return null;
+      const types = new Map();
+      for (const model of payload.models) {
+        if (typeof model?.id === "string" && typeof model?.model_type === "string") {
+          types.set(model.id, model.model_type);
+        }
+      }
+      return types.size ? types : null;
+    } catch {
+      return null;
+    }
+  }
+
+  // A text-only model does not error on image parts — oMLX silently drops
+  // them and the model answers from the text alone ("we cannot see the
+  // photo"), producing garbage scores that look like a completed run. Refuse
+  // up front whenever the capability is knowable.
+  async function assertModelCanSeeImages(baseUrl, modelId, benchmark, problems) {
+    if (!problems.some((problem) => Array.isArray(problem.images) && problem.images.length)) return;
+    const modelTypes = await fetchModelTypes(baseUrl);
+    const modelType = modelTypes?.get(String(modelId || "").trim());
+    if (modelType !== undefined && modelType !== "vlm") {
+      throw new Error(
+        `Model "${modelId}" is not a vision model (oMLX model_type "${modelType}") — `
+        + `"${benchmark.label}" attaches photographs to every call, and a text-only model `
+        + "silently ignores them, so every score would be garbage. Pick a model listed as "
+        + 'model_type "vlm" (the model dropdown tags them "vision").'
+      );
+    }
+  }
+
   async function createRun(config) {
     const baseUrl = normalizeBaseUrl(config.baseUrl);
     const benchmark = getBenchmark(config.benchmark);
     const allProblems = await loadBenchmarkProblems(benchmark);
+    await assertModelCanSeeImages(baseUrl, config.model, benchmark, allProblems);
     const selectedIndices = parseTestNumbers(config.testNumbers, allProblems.length, benchmark.taskIdPattern);
     const adaptiveRepetitionPenalty = Boolean(config.adaptiveRepetitionPenalty);
     const repetitionPenalty = Number(config.repetitionPenalty ?? 1);
@@ -677,7 +806,9 @@ export function createRuntimeServer({
       baseUrl,
       apiKey: String(config.apiKey || "").trim(),
       temperature: Number(config.temperature ?? 0),
-      maxTokens: Number(config.maxTokens ?? 2048),
+      maxOutputTokens: normalizeTokenCount(config.maxOutputTokens, 2048),
+      thinkingEnabled: config.thinkingEnabled !== false,
+      thinkingBudget: normalizeTokenCount(config.thinkingBudget, 8192),
       timeoutSeconds: Number(config.timeoutSeconds ?? 15),
       parallelTasks,
       passCount,
@@ -696,7 +827,9 @@ export function createRuntimeServer({
         benchmark: benchmark.id,
         model: String(config.model || "").trim(),
         temperature: Number(config.temperature ?? 0),
-        maxTokens: Number(config.maxTokens ?? 2048),
+        maxOutputTokens: normalizeTokenCount(config.maxOutputTokens, 2048),
+        thinkingEnabled: config.thinkingEnabled !== false,
+        thinkingBudget: normalizeTokenCount(config.thinkingBudget, 8192),
         timeoutSeconds: Number(config.timeoutSeconds ?? 15),
         parallelTasks,
         passCount,
@@ -737,6 +870,15 @@ export function createRuntimeServer({
     if (run.status === "running" || run.status === "queued") return false;
     if (run.status === "completed") return false;
     return run.completed < run.total;
+  }
+
+  // Async pre-checks for resume, separated so resumeRun itself stays
+  // synchronous: the resume response must serialize the "queued" state before
+  // the runBenchmark microtask flips it to "running".
+  async function assertRunResumable(run) {
+    const benchmark = getBenchmark(run.benchmark);
+    const problems = await loadBenchmarkProblems(benchmark);
+    await assertModelCanSeeImages(run.baseUrl, run.model, benchmark, problems);
   }
 
   function resumeRun(run) {
@@ -822,6 +964,75 @@ export function createRuntimeServer({
       if (req.method === "GET" && url.pathname === "/api/benchmarks") {
         return sendJson(res, 200, { benchmarks: benchmarkSummaries() });
       }
+      // Serve benchmark-owned binary assets (e.g. dataset photographs) so the
+      // UI can show exactly what was sent to the model. The benchmark decides
+      // which names are legal and where they live; anything it declines is a
+      // 404, so no other file on disk is reachable through this route.
+      if (req.method === "GET" && url.pathname.startsWith(BENCHMARK_ASSET_ROUTE_PREFIX)) {
+        const [rawBenchmarkId, ...rest] = url.pathname.slice(BENCHMARK_ASSET_ROUTE_PREFIX.length).split("/");
+        const benchmarkId = decodeURIComponent(rawBenchmarkId || "");
+        const file = decodeURIComponent(rest.join("/"));
+        const contentType = ASSET_CONTENT_TYPES.get(file.split(".").pop()?.toLowerCase() || "");
+        if (!contentType) return sendJson(res, 400, { error: "unsupported asset type" });
+        const assetPath = benchmarks.get(benchmarkId)?.resolveAssetPath?.(file) ?? null;
+        if (!assetPath) return sendJson(res, 404, { error: "asset not found" });
+        try {
+          const bytes = await fs.readFile(assetPath);
+          res.writeHead(200, {
+            "content-type": contentType,
+            "content-length": String(bytes.length),
+            "access-control-allow-origin": "*",
+            // Not immutable: a re-export can rewrite the bytes behind a name.
+            "cache-control": "public, max-age=300"
+          });
+          return res.end(bytes);
+        } catch {
+          return sendJson(res, 404, { error: "asset not found" });
+        }
+      }
+      // Proxy the endpoint's model list so the UI can offer autocomplete
+      // without a cross-origin call. NOTE: OpenAI-compatible /models replies
+      // (oMLX included) expose no vision-capability flag, so the UI cannot
+      // pre-filter models for image benchmarks — a non-vision model simply
+      // fails the run with the server's own error.
+      if (req.method === "GET" && url.pathname === "/api/models") {
+        const rawBaseUrl = url.searchParams.get("baseUrl") || "";
+        if (!rawBaseUrl.trim()) {
+          return sendJson(res, 400, { error: "baseUrl query parameter is required" });
+        }
+        let baseUrl;
+        try {
+          baseUrl = normalizeBaseUrl(rawBaseUrl);
+        } catch {
+          return sendJson(res, 400, { error: "baseUrl is not a valid URL" });
+        }
+        try {
+          const upstream = await fetchImplementation(`${baseUrl}/models`, {
+            signal: AbortSignal.timeout(3000)
+          });
+          if (!upstream.ok) {
+            return sendJson(res, 502, { error: `Model endpoint replied HTTP ${upstream.status}` });
+          }
+          const payload = await upstream.json();
+          // modelType comes from oMLX's admin API ("vlm" = vision-capable);
+          // null when the endpoint exposes no capability data.
+          const modelTypes = await fetchModelTypes(baseUrl);
+          const models = Array.isArray(payload?.data)
+            ? payload.data
+                .filter((model) => typeof model?.id === "string")
+                .map((model) => ({
+                  id: model.id,
+                  maxModelLen: model.max_model_len ?? null,
+                  modelType: modelTypes?.get(model.id) ?? null
+                }))
+            : [];
+          return sendJson(res, 200, { models });
+        } catch (error) {
+          return sendJson(res, 502, {
+            error: `Could not list models: ${error instanceof Error ? error.message : String(error)}`
+          });
+        }
+      }
       const problemsMatch = url.pathname === "/api/humaneval/problems"
         ? ["", "humaneval"]
         : url.pathname.match(/^\/api\/benchmarks\/([^/]+)\/problems$/);
@@ -882,6 +1093,7 @@ export function createRuntimeServer({
           return sendJson(res, 200, runSummary(run, { includeResults: false }));
         }
         if (req.method === "POST" && runMatch[2] === "resume") {
+          await assertRunResumable(run);
           const resumedRun = resumeRun(run);
           return sendJson(res, 200, runSummary(resumedRun, { includeResults: false }));
         }

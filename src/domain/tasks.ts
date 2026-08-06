@@ -1,4 +1,5 @@
-import type { BenchRun, EventEnvelope, TaskGroup, TaskPromptInfo, TaskRow, TokenEvent } from "./benchmark";
+import type { BenchRun, BenchTaskImage, EventEnvelope, TaskGroup, TaskPromptInfo, TaskRow, TokenEvent } from "./benchmark";
+import { benchmarkOption, runBenchmarkId } from "./benchmark";
 import { attemptKey, attemptPassNumber } from "./passes";
 import { formatPromptMessages } from "./prompts";
 import { resultStatus, runPassCount } from "./runs";
@@ -52,6 +53,7 @@ export function taskGroupsFromRun(
   groupedPromptInfo: Map<string, TaskPromptInfo>
 ): TaskGroup[] {
   const rows = new Map<string, TaskRow>();
+  const taskIdIndexPattern = benchmarkOption(runBenchmarkId(selectedRun)).taskIdIndexPattern;
   for (const event of events) {
     if (event.type !== "task-started") continue;
     const taskId = String(event.data.taskId || "");
@@ -74,6 +76,7 @@ export function taskGroupsFromRun(
       subtask: typeof event.data.subtask === "string" ? event.data.subtask : undefined,
       prompt: typeof event.data.prompt === "string" ? event.data.prompt : undefined,
       test: typeof event.data.test === "string" ? event.data.test : undefined,
+      images: Array.isArray(event.data.images) ? (event.data.images as BenchTaskImage[]) : undefined,
       repetitionPenalty: Number.isFinite(Number(event.data.repetitionPenalty))
         ? Number(event.data.repetitionPenalty)
         : undefined,
@@ -89,9 +92,10 @@ export function taskGroupsFromRun(
     const key = attemptKey(taskId, passNumber);
     if (rows.has(key)) continue;
     const tokenIndex = groupedTokens.get(key)?.find((token) => Number.isFinite(token.index))?.index;
-    // Only HumanEval and BBEH-mini task ids encode the global dataset index;
-    // BBEH-full ids end in a subtask-local ordinal, which must not be used.
-    const parsedIndex = Number(taskId.match(/^(?:HumanEval|bbeh_mini)\/(\d+)$/i)?.[1]);
+    // Only some benchmarks encode the global dataset index in the task id;
+    // where they do not, a still running task sorts last rather than jumping
+    // to a position borrowed from a subtask-local ordinal.
+    const parsedIndex = Number(taskIdIndexPattern ? taskId.match(taskIdIndexPattern)?.[1] : NaN);
     const fallbackIndex = Number.isFinite(parsedIndex) ? parsedIndex : Number.MAX_SAFE_INTEGER;
     const promptInfo = groupedPromptInfo.get(key);
     rows.set(key, {

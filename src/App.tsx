@@ -5,6 +5,7 @@ import { RunStrip } from "./components/RunStrip";
 import { SidebarConfig } from "./components/SidebarConfig";
 import { StatusSummary } from "./components/StatusSummary";
 import { TaskResults } from "./components/TaskResults";
+import { useAvailableModels } from "./hooks/useAvailableModels";
 import { useBenchmarkController } from "./hooks/useBenchmarkController";
 
 export default function App() {
@@ -13,7 +14,9 @@ export default function App() {
     baseUrl,
     apiKey,
     model,
-    maxTokens,
+    maxOutputTokens,
+    thinkingEnabled,
+    thinkingBudget,
     timeoutSeconds,
     parallelTasks,
     passCount,
@@ -48,7 +51,9 @@ export default function App() {
     setBaseUrl,
     setApiKey,
     setModel,
-    setMaxTokens,
+    setMaxOutputTokens,
+    setThinkingEnabled,
+    setThinkingBudget,
     setTimeoutSeconds,
     setParallelTasks,
     setPassCount,
@@ -74,6 +79,11 @@ export default function App() {
     copyNumbers,
     copyThinkingNumbers,
   } = useBenchmarkController();
+  const {
+    models: availableModels,
+    modelTypes: availableModelTypes,
+    refresh: refreshAvailableModels
+  } = useAvailableModels(baseUrl);
 
   return (
     <main className={sidebarCollapsed ? "bench-shell sidebar-collapsed" : "bench-shell"}>
@@ -93,7 +103,12 @@ export default function App() {
           baseUrl={baseUrl}
           apiKey={apiKey}
           model={model}
-          maxTokens={maxTokens}
+          availableModels={availableModels}
+          modelTypes={availableModelTypes}
+          onRefreshModels={refreshAvailableModels}
+          maxOutputTokens={maxOutputTokens}
+          thinkingEnabled={thinkingEnabled}
+          thinkingBudget={thinkingBudget}
           timeoutSeconds={timeoutSeconds}
           parallelTasks={parallelTasks}
           passCount={passCount}
@@ -115,7 +130,9 @@ export default function App() {
           setBaseUrl={setBaseUrl}
           setApiKey={setApiKey}
           setModel={setModel}
-          setMaxTokens={setMaxTokens}
+          setMaxOutputTokens={setMaxOutputTokens}
+          setThinkingEnabled={setThinkingEnabled}
+          setThinkingBudget={setThinkingBudget}
           setTimeoutSeconds={setTimeoutSeconds}
           setParallelTasks={setParallelTasks}
           setPassCount={setPassCount}
